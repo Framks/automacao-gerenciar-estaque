@@ -1,0 +1,17 @@
+# Segredos: nunca versionar
+.env
+.env.*
+client_secret*.json
+service-account*.json
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+
+# Áudios gerados pelos scripts de teste
+*.ogg
+*.mp3
+
+# Vercel CLI
+.vercel

@@ -1,0 +1,82 @@
+# Testes em todo push/PR; deploy de produção na Vercel a cada push na main (se os testes passarem).
+#
+# Segredos necessários (GitHub > Settings > Secrets and variables > Actions > New repository secret):
+#   VERCEL_TOKEN       https://vercel.com/account/tokens
+#   VERCEL_ORG_ID      Vercel > Settings (da conta/time) > "Team ID" (conta pessoal: "Your ID")
+#   VERCEL_PROJECT_ID  Vercel > projeto > Settings > General > "Project ID"
+# As variáveis do bot (WHATSAPP_*, GROQ_*, GOOGLE_*, ...) ficam na Vercel, em Settings > Environment Variables.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Rodar testes
+        run: pytest -q
+
+  deploy:
+    needs: testes
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Conferir segredos da Vercel
+        id: segredos
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "::warning::Deploy pulado: cadastre VERCEL_TOKEN, VERCEL_ORG_ID e VERCEL_PROJECT_ID nos segredos do repositório."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.segredos.outputs.ok == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.segredos.outputs.ok == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Vercel CLI
+        if: steps.segredos.outputs.ok == 'true'
+        run: npm install --global vercel@latest
+
+      - name: Baixar configuração do projeto (produção)
+        if: steps.segredos.outputs.ok == 'true'
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build
+        if: steps.segredos.outputs.ok == 'true'
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy em produção
+        if: steps.segredos.outputs.ok == 'true'
+        run: |
+          url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "Deploy publicado: $url" >> "$GITHUB_STEP_SUMMARY"
