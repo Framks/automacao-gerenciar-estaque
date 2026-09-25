@@ -1,7 +1,7 @@
 {
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/index" }],
+  "framework": "fastapi",
   "functions": {
-    "api/index.py": {
+    "main.py": {
       "maxDuration": 60,
       "excludeFiles": "{tests/**,scripts/**,**/__pycache__/**}"
     }

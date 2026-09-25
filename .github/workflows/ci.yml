@@ -34,11 +34,11 @@ jobs:
       - name: Rodar testes
         run: pytest -q
 
-      # Sobe o app do mesmo jeito que a Vercel importa (api/index.py) e chama /api/health.
+      # Sobe o app do mesmo jeito que a Vercel importa (main.py) e chama /api/health.
       # Pega erros de importação/dependência antes de chegarem em produção.
       - name: Teste de fumaça (app sobe e responde)
         run: |
-          uvicorn api.index:app --port 8000 > uvicorn.log 2>&1 &
+          uvicorn main:app --port 8000 > uvicorn.log 2>&1 &
           for i in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:8000/api/health; then echo; exit 0; fi
             sleep 1

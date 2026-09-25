@@ -49,13 +49,13 @@ python scripts/test_sheets.py                 # cadastra "teste000" (abas novas)
 python scripts/test_tts.py                    # gera resposta.ogg para ouvir (edge-tts)
 ```
 
-Rodar localmente: `uvicorn api.index:app --reload`. Sem `UPSTASH_*` e `QSTASH_TOKEN`, o app usa Redis em memória e processa a mensagem na hora, sem fila. Para a Meta alcançar o seu PC, use um túnel (ex.: `cloudflared tunnel --url http://localhost:8000`).
+Rodar localmente: `uvicorn main:app --reload`. Sem `UPSTASH_*` e `QSTASH_TOKEN`, o app usa Redis em memória e processa a mensagem na hora, sem fila. Para a Meta alcançar o seu PC, use um túnel (ex.: `cloudflared tunnel --url http://localhost:8000`).
 
 ## Estrutura
 
 | Caminho | O que faz |
 |---|---|
-| `api/index.py` | Rotas HTTP (webhook e worker) |
+| `main.py` | Rotas HTTP (webhook, worker e health); entrada detectada pela Vercel |
 | `app/pipeline.py` | Orquestra o fluxo de uma mensagem |
 | `app/domain/` | Regras do estoque, unidades e textos de resposta (sem rede, 100% testado) |
 | `app/llm/interpreter.py` | Fala → JSON (Groq) |

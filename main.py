@@ -1,4 +1,4 @@
-"""Entrada HTTP (FastAPI) publicada como função Python na Vercel.
+"""Entrada HTTP (FastAPI). A Vercel detecta este arquivo (main.py na raiz) e manda todas as requisições para `app`.
 
 - GET  /api/webhook : verificação do webhook pela Meta
 - POST /api/webhook : recebe mensagens, valida, descarta duplicadas e enfileira (responde 200 rápido)
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # permite "import app" na Vercel
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # garante "import app" a partir da raiz
 
 from app import container  # noqa: E402
 from app.config import get_settings  # noqa: E402
