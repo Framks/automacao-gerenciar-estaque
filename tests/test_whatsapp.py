@@ -58,3 +58,13 @@ def test_dedupe_e_trava():
             pass
     with c.trava("tel", espera=0.1):  # liberada ao sair
         pass
+
+
+def test_config_ignora_espacos_colados(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "  https://bot.vercel.app/ ")
+    monkeypatch.setenv("QSTASH_URL", " https://qstash-eu-central-1.upstash.io")
+    s = Settings(_env_file=None)
+    assert s.worker_url == "https://bot.vercel.app/api/worker"
+    assert s.qstash_url == "https://qstash-eu-central-1.upstash.io"

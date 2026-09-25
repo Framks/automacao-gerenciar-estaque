@@ -6,7 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # str_strip_whitespace: tolera espaços colados sem querer (ex.: "PUBLIC_BASE_URL= https://...")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", str_strip_whitespace=True
+    )
 
     # WhatsApp Cloud API (Meta)
     whatsapp_token: str = ""
