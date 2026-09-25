@@ -25,9 +25,25 @@ log = logging.getLogger("api")
 app = FastAPI()
 
 
+OBRIGATORIAS = [
+    "whatsapp_token", "whatsapp_phone_number_id", "whatsapp_app_secret", "whatsapp_verify_token",
+    "groq_api_key", "google_service_account_json", "spreadsheet_id",
+    "upstash_redis_rest_url", "upstash_redis_rest_token",
+    "qstash_token", "qstash_current_signing_key", "qstash_next_signing_key", "public_base_url",
+]
+
+
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    """Diagnóstico sem segredos: só nomes de variáveis ausentes e URLs públicas."""
+    s = get_settings()
+    faltando = [nome.upper() for nome in OBRIGATORIAS if not getattr(s, nome)]
+    return {
+        "ok": True,
+        "variaveis_faltando": faltando,
+        "worker_url": s.worker_url,
+        "qstash_url": s.qstash_url or "(padrão)",
+    }
 
 
 @app.get("/api/webhook")
@@ -53,10 +69,11 @@ async def receber_webhook(request: Request):
         if fila:
             try:
                 fila.publicar(asdict(msg))
-            except Exception:
+            except Exception as e:
                 log.exception("falha ao enfileirar %s", msg.msg_id)
                 controle.esquecer(msg.msg_id)
-                return Response(status_code=500)  # a Meta reenvia o webhook
+                # a Meta reenvia o webhook; o corpo (só visível a quem tem assinatura válida) ajuda no diagnóstico
+                return Response(status_code=500, content=f"falha ao enfileirar: {type(e).__name__}: {str(e)[:300]}")
         else:  # sem QStash (desenvolvimento): processa na hora
             try:
                 container.pipeline().processar(msg)
