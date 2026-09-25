@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # Groq (transcrição + interpretação)
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
     groq_stt_model: str = "whisper-large-v3-turbo"
 
     # Google Sheets (conta de serviço)
