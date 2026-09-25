@@ -78,3 +78,24 @@ def test_worker_url_usa_dominio_da_vercel_se_faltar_public_base_url(monkeypatch)
     assert Settings(_env_file=None).worker_url == "https://bot.vercel.app/api/worker"
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://meu-dominio.com")
     assert Settings(_env_file=None).worker_url == "https://meu-dominio.com/api/worker"
+
+
+def test_numero_para_envio_adiciona_nono_digito_no_brasil():
+    from app.whatsapp.client import numero_para_envio
+
+    assert numero_para_envio("558881061891") == "5588981061891"  # celular sem o 9 -> com 9
+    assert numero_para_envio("5588981061891") == "5588981061891"  # já tem 13 dígitos
+    assert numero_para_envio("558832221111") == "558832221111"  # fixo (começa com 3): não mexe
+    assert numero_para_envio("15551647290") == "15551647290"  # outro país: não mexe
+
+
+def test_erro_da_meta_aparece_na_mensagem():
+    import httpx
+    import pytest
+
+    from app.whatsapp.client import ErroWhatsApp, _checar
+
+    erro = {"error": {"code": 131030, "message": "Recipient phone number not in allowed list"}}
+    resposta = httpx.Response(400, json=erro)
+    with pytest.raises(ErroWhatsApp, match="131030: Recipient phone number not in allowed list"):
+        _checar(resposta, "enviar text")
