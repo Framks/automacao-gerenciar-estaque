@@ -1,0 +1,48 @@
+# Testes em todo push e pull request.
+#
+# O deploy é feito pela integração GitHub da própria Vercel (vercel.json: "git.deploymentEnabled": true):
+# cada push na main publica em produção, e cada pull request ganha um deploy de preview.
+# As variáveis do bot (WHATSAPP_*, GROQ_*, GOOGLE_*, ...) ficam na Vercel, em Settings > Environment Variables.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Rodar testes
+        run: pytest -q
+
+      # Sobe o app do mesmo jeito que a Vercel importa (api/index.py) e chama /api/health.
+      # Pega erros de importação/dependência antes de chegarem em produção.
+      - name: Teste de fumaça (app sobe e responde)
+        run: |
+          uvicorn api.index:app --port 8000 > uvicorn.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8000/api/health; then echo; exit 0; fi
+            sleep 1
+          done
+          echo "O app não respondeu. Log do servidor:"
+          cat uvicorn.log
+          exit 1
