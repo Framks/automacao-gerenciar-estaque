@@ -45,6 +45,8 @@ def health():
         "variaveis_faltando": faltando,
         "worker_url": s.worker_url,
         "qstash_url": s.qstash_url or "(padrão)",
+        "groq_model": s.groq_model,
+        "groq_stt_model": s.groq_stt_model,
     }
 
 
