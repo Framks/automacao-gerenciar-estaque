@@ -68,3 +68,13 @@ def test_config_ignora_espacos_colados(monkeypatch):
     s = Settings(_env_file=None)
     assert s.worker_url == "https://bot.vercel.app/api/worker"
     assert s.qstash_url == "https://qstash-eu-central-1.upstash.io"
+
+
+def test_worker_url_usa_dominio_da_vercel_se_faltar_public_base_url(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.setenv("VERCEL_PROJECT_PRODUCTION_URL", "bot.vercel.app")
+    assert Settings(_env_file=None).worker_url == "https://bot.vercel.app/api/worker"
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://meu-dominio.com")
+    assert Settings(_env_file=None).worker_url == "https://meu-dominio.com/api/worker"

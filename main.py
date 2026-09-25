@@ -29,7 +29,7 @@ OBRIGATORIAS = [
     "whatsapp_token", "whatsapp_phone_number_id", "whatsapp_app_secret", "whatsapp_verify_token",
     "groq_api_key", "google_service_account_json", "spreadsheet_id",
     "upstash_redis_rest_url", "upstash_redis_rest_token",
-    "qstash_token", "qstash_current_signing_key", "qstash_next_signing_key", "public_base_url",
+    "qstash_token", "qstash_current_signing_key", "qstash_next_signing_key", "base_url",
 ]
 
 
@@ -37,7 +37,9 @@ OBRIGATORIAS = [
 def health():
     """Diagnóstico sem segredos: só nomes de variáveis ausentes e URLs públicas."""
     s = get_settings()
-    faltando = [nome.upper() for nome in OBRIGATORIAS if not getattr(s, nome)]
+    faltando = [
+        "PUBLIC_BASE_URL" if nome == "base_url" else nome.upper() for nome in OBRIGATORIAS if not getattr(s, nome)
+    ]
     return {
         "ok": True,
         "variaveis_faltando": faltando,

@@ -39,12 +39,22 @@ class Settings(BaseSettings):
     qstash_current_signing_key: str = ""
     qstash_next_signing_key: str = ""
 
-    # URL pública do deploy (ex.: https://meu-bot.vercel.app), usada para o QStash chamar o worker
+    # URL pública do deploy (ex.: https://meu-bot.vercel.app), usada para o QStash chamar o worker.
+    # Se vazia, usa o domínio de produção que a própria Vercel informa (VERCEL_PROJECT_PRODUCTION_URL).
     public_base_url: str = ""
+    vercel_project_production_url: str = ""  # variável de sistema da Vercel, sem "https://"
+
+    @property
+    def base_url(self) -> str:
+        if self.public_base_url:
+            return self.public_base_url.rstrip("/")
+        if self.vercel_project_production_url:
+            return "https://" + self.vercel_project_production_url.strip("/")
+        return ""
 
     @property
     def worker_url(self) -> str:
-        return self.public_base_url.rstrip("/") + "/api/worker"
+        return self.base_url + "/api/worker"
 
 
 @lru_cache
