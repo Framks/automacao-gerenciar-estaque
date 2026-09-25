@@ -1,3 +1,4 @@
+import json
 import hashlib
 import hmac
 
@@ -99,3 +100,25 @@ def test_erro_da_meta_aparece_na_mensagem():
     resposta = httpx.Response(400, json=erro)
     with pytest.raises(ErroWhatsApp, match="131030: Recipient phone number not in allowed list"):
         _checar(resposta, "enviar text")
+
+
+def test_extrair_status_de_entrega_com_erro():
+    from app.whatsapp.client import extrair_status
+
+    payload = {"entry": [{"changes": [{"value": {"statuses": [{
+        "id": "wamid.ABCDEFGHIJKLMNOP", "status": "failed", "timestamp": "1790300000",
+        "recipient_id": "5588981061891",
+        "errors": [{"code": 131047, "title": "Re-engagement message", "message": "Re-engagement message",
+                    "error_data": {"details": "Message failed to send because more than 24 hours have passed"}}],
+    }]}}]}]}
+    (evento,) = extrair_status(payload)
+    assert evento["status"] == "failed" and evento["para"] == "5588****1891"
+    assert evento["erros"][0]["code"] == 131047
+    assert "24 hours" in evento["erros"][0]["details"]
+
+
+def test_registrar_status_guarda_so_os_ultimos():
+    c = Controle(MemoriaRedis())
+    for i in range(5):
+        c.registrar_status({"i": i}, limite=3)
+    assert [json.loads(x)["i"] for x in c._redis.lrange("wa:status", 0, -1)] == [4, 3, 2]

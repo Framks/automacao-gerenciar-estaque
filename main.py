@@ -17,7 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # garante "import app"
 from app import container  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.errors import ServicoIndisponivel  # noqa: E402
-from app.whatsapp.client import MensagemRecebida, assinatura_valida, extrair_mensagens  # noqa: E402
+from app.whatsapp.client import (  # noqa: E402
+    MensagemRecebida,
+    assinatura_valida,
+    extrair_mensagens,
+    extrair_status,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("api")
@@ -66,8 +71,20 @@ async def receber_webhook(request: Request):
         log.warning("assinatura do webhook inválida")
         return Response(status_code=401)
 
+    payload = await request.json()
     controle, fila = container.controle(), container.fila()
-    for msg in extrair_mensagens(await request.json()):
+
+    for evento in extrair_status(payload):
+        if evento["erros"]:
+            log.error("entrega FALHOU: %s", evento)
+        else:
+            log.info("entrega: %s para %s", evento["status"], evento["para"])
+        try:
+            controle.registrar_status(evento)
+        except Exception:
+            log.exception("não consegui guardar o status de entrega")
+
+    for msg in extrair_mensagens(payload):
         if not controle.primeira_vez(msg.msg_id):
             continue
         if fila:

@@ -34,6 +34,31 @@ def assinatura_valida(corpo: bytes, cabecalho: str | None, app_secret: str) -> b
     return hmac.compare_digest(esperado, cabecalho.removeprefix("sha256="))
 
 
+def extrair_status(payload: dict) -> list[dict]:
+    """Eventos de entrega das mensagens que o bot enviou (sent, delivered, read, failed)."""
+    eventos = []
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            for st in change.get("value", {}).get("statuses", []):
+                erros = [
+                    {"code": e.get("code"), "title": e.get("title"), "message": e.get("message"),
+                     "details": (e.get("error_data") or {}).get("details")}
+                    for e in st.get("errors", [])
+                ]
+                eventos.append({
+                    "status": st.get("status"),
+                    "para": mascarar(st.get("recipient_id", "")),
+                    "msg_id": st.get("id", "")[-12:],
+                    "quando": st.get("timestamp"),
+                    "erros": erros,
+                })
+    return eventos
+
+
+def mascarar(telefone: str) -> str:
+    return telefone[:4] + "****" + telefone[-4:] if len(telefone) > 8 else telefone
+
+
 def extrair_mensagens(payload: dict) -> list[MensagemRecebida]:
     """Pega as mensagens de áudio e texto do webhook. Ignora status de entrega e outros tipos."""
     mensagens = []

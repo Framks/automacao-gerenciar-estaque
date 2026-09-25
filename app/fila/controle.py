@@ -1,5 +1,6 @@
 """Descarte de duplicadas e trava por telefone, usando Redis (Upstash)."""
 
+import json
 import time
 import uuid
 from contextlib import contextmanager
@@ -24,6 +25,11 @@ class Controle:
     def esquecer(self, msg_id: str) -> None:
         """Desfaz `primeira_vez` (ex.: falhou ao enfileirar e queremos aceitar o reenvio da Meta)."""
         self._redis.delete(f"wa:recebida:{msg_id}")
+
+    def registrar_status(self, evento: dict, limite: int = 50) -> None:
+        """Guarda os últimos eventos de entrega (para diagnóstico)."""
+        self._redis.lpush("wa:status", json.dumps(evento, ensure_ascii=False))
+        self._redis.ltrim("wa:status", 0, limite - 1)
 
     def ja_processada(self, msg_id: str) -> bool:
         return self._redis.get(f"wa:processada:{msg_id}") is not None
@@ -52,6 +58,7 @@ class MemoriaRedis:
 
     def __init__(self):
         self._dados: dict[str, tuple[str, float | None]] = {}
+        self._listas: dict[str, list[str]] = {}
 
     def get(self, key):
         valor = self._dados.get(key)
@@ -70,3 +77,15 @@ class MemoriaRedis:
 
     def delete(self, key):
         self._dados.pop(key, None)
+
+    def lpush(self, key, value):
+        lista = self._listas.setdefault(key, [])
+        lista.insert(0, value)
+        return len(lista)
+
+    def ltrim(self, key, inicio, fim):
+        self._listas[key] = self._listas.get(key, [])[inicio:None if fim == -1 else fim + 1]
+        return True
+
+    def lrange(self, key, inicio, fim):
+        return self._listas.get(key, [])[inicio:None if fim == -1 else fim + 1]
