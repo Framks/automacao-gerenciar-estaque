@@ -1,5 +1,16 @@
 {
-  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/index" }],
-  "functions": { "api/index.py": { "maxDuration": 60 } },
-  "git": { "deploymentEnabled": false }
+  "rewrites": [
+    { 
+      "source": "/api/(.*)", 
+      "destination": "/api/index" 
+    }
+  ],
+  "functions": { 
+    "api/index.py": { 
+      "maxDuration": 60 
+    } 
+  },
+  "git": { 
+    "deploymentEnabled": true
+  }
 }
