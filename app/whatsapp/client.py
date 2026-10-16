@@ -92,6 +92,12 @@ def numero_para_envio(telefone: str) -> str:
     return telefone
 
 
+def telefone_permitido(telefone: str, permitidos: str) -> bool:
+    """True se a lista estiver vazia ou contiver o telefone (compara já com o nono dígito)."""
+    lista = {numero_para_envio(t.strip().lstrip("+")) for t in permitidos.split(",") if t.strip()}
+    return not lista or numero_para_envio(telefone) in lista
+
+
 def _checar(resposta: httpx.Response, etapa: str) -> None:
     if resposta.is_success:
         return

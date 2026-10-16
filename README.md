@@ -69,7 +69,7 @@ Rodar localmente: `uvicorn main:app --reload`. Sem `UPSTASH_*` e `QSTASH_TOKEN`,
 Uma planilha só (`SPREADSHEET_ID`), com as abas:
 
 - `usuarios`: `telefone | nome | status | criado_em`.
-  - Um número novo é cadastrado sozinho.
+  - Um número novo é cadastrado sozinho, se estiver em `TELEFONES_PERMITIDOS` (separados por vírgula, com DDI). Vazia, a lista libera qualquer número. Fora dela, a mensagem é ignorada já no webhook, sem resposta.
   - Para bloquear um número, mude `status` para `bloqueado`. A mudança vale em até 1h, por causa do cache.
 - Para cada comerciante:
   - `<telefone>_movimentacoes`: livro-caixa, só recebe linhas novas;

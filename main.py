@@ -22,6 +22,8 @@ from app.whatsapp.client import (  # noqa: E402
     assinatura_valida,
     extrair_mensagens,
     extrair_status,
+    mascarar,
+    telefone_permitido,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -52,6 +54,7 @@ def health():
         "qstash_url": s.qstash_url or "(padrão)",
         "groq_model": s.groq_model,
         "groq_stt_model": s.groq_stt_model,
+        "telefones_permitidos": len([t for t in s.telefones_permitidos.split(",") if t.strip()]) or "todos",
     }
 
 
@@ -85,6 +88,9 @@ async def receber_webhook(request: Request):
             log.exception("não consegui guardar o status de entrega")
 
     for msg in extrair_mensagens(payload):
+        if not telefone_permitido(msg.telefone, settings.telefones_permitidos):
+            log.info("ignorando número fora da lista de permitidos: %s", mascarar(msg.telefone))
+            continue
         if not controle.primeira_vez(msg.msg_id):
             continue
         if fila:

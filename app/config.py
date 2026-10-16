@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     whatsapp_app_secret: str = ""
     whatsapp_verify_token: str = ""
     graph_api_version: str = "v23.0"
+    # Só estes números são atendidos (separados por vírgula, com DDI; com ou sem o nono dígito).
+    # Vazio = atende qualquer número.
+    telefones_permitidos: str = ""
 
     # Groq (transcrição + interpretação)
     groq_api_key: str = ""

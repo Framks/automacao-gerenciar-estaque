@@ -122,3 +122,12 @@ def test_registrar_status_guarda_so_os_ultimos():
     for i in range(5):
         c.registrar_status({"i": i}, limite=3)
     assert [json.loads(x)["i"] for x in c._redis.lrange("wa:status", 0, -1)] == [4, 3, 2]
+
+
+def test_telefone_permitido():
+    from app.whatsapp.client import telefone_permitido
+
+    assert telefone_permitido("5585999990001", "")  # lista vazia: atende todos
+    assert telefone_permitido("558881061891", "5588981061891")  # wa_id sem o 9 bate com a lista com 9
+    assert telefone_permitido("5588981061891", " +558881061891 , 5511999990000")
+    assert not telefone_permitido("5585999990001", "5588981061891")
