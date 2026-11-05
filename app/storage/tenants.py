@@ -6,9 +6,10 @@ simultâneos de um número novo não o cadastrem duas vezes.
 """
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from typing import Protocol
 
+from app.domain.models import Comerciante
 from app.storage.sheets_repo import (
     ABA_USUARIOS,
     CABECALHO_USUARIOS,
@@ -21,24 +22,14 @@ from app.storage.sheets_repo import (
 CACHE_TTL = 3600
 
 
-@dataclass
-class Comerciante:
-    telefone: str
-    nome: str
-    status: str = "ativo"
-    criado_em: str = ""
-
-    @property
-    def bloqueado(self) -> bool:
-        return self.status == "bloqueado"
-
-
 class Cache(Protocol):
     def get(self, key: str) -> str | None: ...
     def set(self, key: str, value: str, ex: int | None = None): ...
 
 
 class TenantStore:
+    """Implementação Sheets do ComercianteRepository (app/storage/repository.py)."""
+
     def __init__(self, sheets, spreadsheet_id: str, cache: Cache):
         self._sheets = sheets
         self._id = spreadsheet_id

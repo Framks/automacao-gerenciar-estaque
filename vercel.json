@@ -3,7 +3,7 @@
   "functions": {
     "main.py": {
       "maxDuration": 60,
-      "excludeFiles": "{tests/**,scripts/**,**/__pycache__/**}"
+      "excludeFiles": "{tests/**,scripts/**,migrations/**,alembic.ini,admin/**,**/__pycache__/**}"
     }
   },
   "git": {
