@@ -30,7 +30,26 @@ from app.whatsapp.client import (  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("api")
 
-app = FastAPI()
+app = FastAPI(
+    title="Bot de estoque",
+    version="1",
+    docs_url="/api/admin/v1/docs",
+    openapi_url="/api/admin/v1/openapi.json",
+    redoc_url=None,
+)
+
+from app.admin.rotas import router as admin_router  # noqa: E402
+
+app.include_router(admin_router)
+
+# O front do admin chama a API pela mesma origem (rewrite /api/* no projeto da Vercel dele). O CORS só é
+# ligado se ADMIN_ORIGIN estiver definido (ex.: desenvolvimento com o Vite em outra porta).
+if get_settings().admin_origin:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(CORSMiddleware, allow_origins=[get_settings().admin_origin], allow_credentials=True,
+                       allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                       allow_headers=["Authorization", "Content-Type"])
 
 
 OBRIGATORIAS = [

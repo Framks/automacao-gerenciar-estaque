@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     armazenamento: str = "sheets"
     retencao_mensagens_dias: int = 90  # na F3-01 vira configuração no banco
 
+    # Painel admin (F3-02): segredo do JWT e a origem do front (CORS), ex.: https://admin-bot.vercel.app
+    admin_jwt_secret: str = ""
+    admin_origin: str = ""
+
     # Voz e fuso
     tts_voice: str = "pt-BR-FranciscaNeural"  # edge-tts; outras: pt-BR-AntonioNeural, pt-BR-ThalitaMultilingualNeural
     timezone: str = "America/Fortaleza"

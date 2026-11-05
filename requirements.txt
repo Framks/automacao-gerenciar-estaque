@@ -12,3 +12,5 @@ google-api-python-client>=2.140
 sqlalchemy>=2.0
 psycopg[binary]>=3.2
 alembic>=1.13
+argon2-cffi>=23.1
+pyjwt>=2.8
