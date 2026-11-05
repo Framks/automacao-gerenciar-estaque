@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     google_service_account_json: str = ""  # conteúdo do JSON da chave, numa linha
     spreadsheet_id: str = ""  # planilha compartilhada com o client_email da conta de serviço (Editor)
 
+    # Postgres (Neon). A integração da Vercel injeta DATABASE_URL (a mesma em produção e preview);
+    # BOT_DATABASE_URL, se definida, tem prioridade: é como o preview aponta para o banco dele.
+    database_url: str = ""
+    bot_database_url: str = ""
+    # Onde ficam estoque e cadastro: "sheets" (Google Sheets) ou "postgres".
+    armazenamento: str = "sheets"
+
     # Voz e fuso
     tts_voice: str = "pt-BR-FranciscaNeural"  # edge-tts; outras: pt-BR-AntonioNeural, pt-BR-ThalitaMultilingualNeural
     timezone: str = "America/Fortaleza"
@@ -62,6 +69,10 @@ class Settings(BaseSettings):
         if self.vercel_project_production_url:
             return "https://" + self.vercel_project_production_url.strip("/")
         return ""
+
+    @property
+    def banco_url(self) -> str:
+        return self.bot_database_url or self.database_url
 
     @property
     def worker_url(self) -> str:

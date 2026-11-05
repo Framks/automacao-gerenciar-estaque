@@ -5,13 +5,10 @@ from functools import lru_cache
 from app.config import get_settings
 from app.fila.controle import Controle, MemoriaRedis, RedisComPrefixo
 from app.fila.qstash import Fila, VerificadorQStash
-from app.google_auth import servico_sheets
 from app.llm.interpreter import GroqInterpreter
 from app.pipeline import Pipeline
 from app.speech.stt import GroqWhisperSTT
 from app.speech.tts import EdgeTTS
-from app.storage.sheets_repo import SheetsInventoryRepository
-from app.storage.tenants import TenantStore
 from app.whatsapp.client import WhatsAppCloudClient
 
 
@@ -45,17 +42,36 @@ def verificador_qstash() -> VerificadorQStash:
     return VerificadorQStash(s.qstash_current_signing_key, s.qstash_next_signing_key)
 
 
+def _armazenamento():
+    """(comerciantes, repositorio) conforme ARMAZENAMENTO: "sheets" (padrão) ou "postgres"."""
+    s = get_settings()
+    if s.armazenamento == "postgres":
+        from app.db.engine import fabrica
+        from app.storage.pg import PgComerciantes, PgInventoryRepository
+
+        f = fabrica(s.banco_url)
+        return PgComerciantes(f, redis(), s.timezone), lambda c: PgInventoryRepository(f, c.id, s.timezone)
+
+    from app.google_auth import servico_sheets
+    from app.storage.sheets_repo import SheetsInventoryRepository
+    from app.storage.tenants import TenantStore
+
+    sheets = servico_sheets(s)
+    return (TenantStore(sheets, s.spreadsheet_id, redis()),
+            lambda c: SheetsInventoryRepository(sheets, s.spreadsheet_id, c.telefone))
+
+
 @lru_cache
 def pipeline() -> Pipeline:
     s = get_settings()
-    sheets = servico_sheets(s)
+    comerciantes, repositorio = _armazenamento()
     return Pipeline(
         whatsapp=WhatsAppCloudClient(s.whatsapp_token, s.whatsapp_phone_number_id, s.graph_api_version),
         stt=GroqWhisperSTT(s.groq_api_key, s.groq_stt_model),
         interpreter=GroqInterpreter(s.groq_api_key, s.groq_model),
         tts=EdgeTTS(s.tts_voice),
-        tenants=TenantStore(sheets, s.spreadsheet_id, redis()),
-        repositorio=lambda telefone: SheetsInventoryRepository(sheets, s.spreadsheet_id, telefone),
+        tenants=comerciantes,
+        repositorio=repositorio,
         controle=controle(),
         timezone=s.timezone,
     )

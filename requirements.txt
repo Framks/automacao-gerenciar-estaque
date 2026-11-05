@@ -9,3 +9,6 @@ edge-tts>=7.0
 imageio-ffmpeg>=0.5
 google-auth>=2.30
 google-api-python-client>=2.140
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+alembic>=1.13

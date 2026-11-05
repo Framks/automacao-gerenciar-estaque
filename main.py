@@ -34,24 +34,34 @@ app = FastAPI()
 
 OBRIGATORIAS = [
     "whatsapp_token", "whatsapp_phone_number_id", "whatsapp_app_secret", "whatsapp_verify_token",
-    "groq_api_key", "google_service_account_json", "spreadsheet_id",
-    "upstash_redis_rest_url", "upstash_redis_rest_token",
+    "groq_api_key", "upstash_redis_rest_url", "upstash_redis_rest_token",
     "qstash_token", "qstash_current_signing_key", "qstash_next_signing_key", "base_url",
 ]
+OBRIGATORIAS_POR_ARMAZENAMENTO = {
+    "sheets": ["google_service_account_json", "spreadsheet_id"],
+    "postgres": ["banco_url"],
+}
+NOMES_VARIAVEIS = {"base_url": "PUBLIC_BASE_URL", "banco_url": "DATABASE_URL"}
 
 
 @app.get("/api/health")
 def health():
     """Diagnóstico sem segredos: só nomes de variáveis ausentes e URLs públicas."""
     s = get_settings()
-    faltando = [
-        "PUBLIC_BASE_URL" if nome == "base_url" else nome.upper() for nome in OBRIGATORIAS if not getattr(s, nome)
-    ]
+    obrigatorias = OBRIGATORIAS + OBRIGATORIAS_POR_ARMAZENAMENTO.get(s.armazenamento, [])
+    faltando = [NOMES_VARIAVEIS.get(nome, nome.upper()) for nome in obrigatorias if not getattr(s, nome)]
+    banco = None
+    if s.banco_url:
+        from app.db.engine import banco_ok
+
+        banco = "ok" if banco_ok(s.banco_url) else "erro"
     return {
         "ok": True,
         "ambiente": s.vercel_env or "local",
         "commit": s.vercel_git_commit_sha[:7],
         "variaveis_faltando": faltando,
+        "armazenamento": s.armazenamento,
+        "banco": banco or "não configurado",
         "worker_url": s.worker_url,
         "qstash_url": s.qstash_url or "(padrão)",
         "groq_model": s.groq_model,

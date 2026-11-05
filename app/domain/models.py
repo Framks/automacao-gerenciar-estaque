@@ -46,6 +46,19 @@ class TipoMovimento(str, Enum):
 
 
 @dataclass
+class Comerciante:
+    telefone: str
+    nome: str
+    status: str = "ativo"  # ativo | bloqueado | pendente
+    criado_em: str = ""
+    id: int | None = None  # no Postgres; None no Sheets
+
+    @property
+    def bloqueado(self) -> bool:
+        return self.status == "bloqueado"
+
+
+@dataclass
 class ProdutoEstoque:
     produto: str
     unidade: str

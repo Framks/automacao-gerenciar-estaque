@@ -8,7 +8,7 @@ from app.errors import ServicoIndisponivel
 from app.fila.controle import Controle, MemoriaRedis
 from app.pipeline import ERRO_GENERICO, Pipeline
 from app.speech.tts import AudioGerado
-from app.storage.tenants import Comerciante
+from app.domain.models import Comerciante
 from app.whatsapp.client import MensagemRecebida
 
 
@@ -91,7 +91,7 @@ def ambiente():
     def criar(interpreter=interp):
         return Pipeline(
             whatsapp=wa, stt=FakeSTT(), interpreter=interpreter, tts=FakeTTS(), tenants=tenants,
-            repositorio=lambda sid: repos.setdefault(sid, FakeRepo()),
+            repositorio=lambda c: repos.setdefault(c.telefone, FakeRepo()),
             controle=Controle(MemoriaRedis()),
         )
 

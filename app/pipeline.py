@@ -13,8 +13,8 @@ from app.fila.controle import Controle
 from app.llm.interpreter import Interpreter
 from app.speech.stt import SpeechToText
 from app.speech.tts import TextToSpeech
-from app.storage.repository import InventoryRepository
-from app.storage.tenants import TenantStore
+from app.domain.models import Comerciante
+from app.storage.repository import ComercianteRepository, InventoryRepository
 from app.whatsapp.client import MensagemRecebida, WhatsApp
 
 log = logging.getLogger(__name__)
@@ -29,8 +29,8 @@ class Pipeline:
         stt: SpeechToText,
         interpreter: Interpreter,
         tts: TextToSpeech,
-        tenants: TenantStore,
-        repositorio: Callable[[str], InventoryRepository],  # telefone -> repositório do comerciante
+        tenants: ComercianteRepository,
+        repositorio: Callable[[Comerciante], InventoryRepository],  # comerciante -> repositório dele
         controle: Controle,
         timezone: str = "America/Fortaleza",
     ):
@@ -85,7 +85,7 @@ class Pipeline:
         else:
             texto = (msg.texto or "").strip()
 
-        repo = self._repositorio(comerciante.telefone)
+        repo = self._repositorio(comerciante)
         estoque = repo.carregar_estoque()
         intencao = self._interpreter.interpretar(texto, [p.produto for p in estoque.values()])
         marcar("interpretacao")

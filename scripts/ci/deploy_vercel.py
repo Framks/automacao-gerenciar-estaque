@@ -74,7 +74,7 @@ def main() -> int:
             if saude.get("variaveis_faltando"):
                 print("faltam variáveis de ambiente na produção")
                 return 1
-            if saude.get("banco") not in (None, "ok"):
+            if saude.get("banco") == "erro":
                 print("o banco não respondeu")
                 return 1
             if saude.get("commit") and not args.sha.startswith(saude["commit"]):
