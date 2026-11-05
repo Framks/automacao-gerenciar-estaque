@@ -93,6 +93,19 @@ def numero_para_envio(telefone: str) -> str:
     return telefone
 
 
+def wa_id_brasil(telefone: str) -> str:
+    """Forma em que a Meta manda o wa_id de celular brasileiro: sem o nono dígito (55 + DDD + 8 dígitos)."""
+    t = "".join(c for c in telefone if c.isdigit())
+    if t.startswith("55") and len(t) == 13 and t[4] == "9":
+        return t[:4] + t[5:]
+    return t
+
+
+def variantes_telefone(telefone: str) -> set[str]:
+    """O mesmo número com e sem o nono dígito (para achar o cadastro de qualquer jeito que vier)."""
+    return {telefone, wa_id_brasil(telefone), numero_para_envio(wa_id_brasil(telefone))}
+
+
 def telefone_permitido(telefone: str, permitidos: str) -> bool:
     """True se a lista estiver vazia ou contiver o telefone (compara já com o nono dígito)."""
     lista = {numero_para_envio(t.strip().lstrip("+")) for t in permitidos.split(",") if t.strip()}

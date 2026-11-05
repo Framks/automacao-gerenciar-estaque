@@ -127,7 +127,8 @@ class Interpreter(Protocol):
 
 
 class GroqInterpreter:
-    def __init__(self, api_key: str, model: str, client: groq.Groq | None = None):
+    def __init__(self, api_key: str, model, client: groq.Groq | None = None):
+        """`model`: nome do modelo, ou uma função que o devolve (lido das configurações a cada chamada)."""
         self._client = client or groq.Groq(api_key=api_key)
         self._model = model
         self.ultimo_uso = Uso()
@@ -163,7 +164,7 @@ class GroqInterpreter:
         inicio = time.perf_counter()
         try:
             resposta = self._client.chat.completions.create(
-                model=self._model,
+                model=self._model() if callable(self._model) else self._model,
                 messages=mensagens,
                 response_format={"type": "json_object"},
                 temperature=0,

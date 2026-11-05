@@ -24,6 +24,9 @@ def cliente(monkeypatch):
     monkeypatch.setattr(main.container, "mensagens", lambda: mensagens)
     monkeypatch.setattr(main.container, "controle", lambda: Controle(MemoriaRedis()))
     monkeypatch.setattr(main.container, "fila", lambda: None)
+    situacoes = {"5585988887777": "permitido", "5511900000000": "bloqueado"}  # o resto: pendente
+    monkeypatch.setattr(main.container, "acesso", lambda: type("A", (), {
+        "verificar": lambda s, tel, nome=None: situacoes.get(tel, "pendente")})())
     monkeypatch.setattr(main.container, "pipeline", lambda: type("P", (), {"processar": lambda s, m: processadas.append(m)})())
     yield TestClient(main.app), mensagens, processadas, entregas
     get_settings.cache_clear()
@@ -71,3 +74,15 @@ def test_status_de_entrega_vai_para_o_banco(cliente):
     ]}}]}]})
     assert entregas[0] == ("wamid.S1", "read", [])
     assert entregas[1][0:2] == ("wamid.S2", "failed") and entregas[1][2][0]["code"] == 130497
+
+
+def test_aprovado_no_banco_mesmo_fora_da_variavel(cliente):
+    c, _, processadas, _ = cliente
+    enviar(c, mensagem("5585988887777", "wamid.Z"))
+    assert [m.msg_id for m in processadas] == ["wamid.Z"]
+
+
+def test_bloqueado_no_banco_e_ignorado(cliente):
+    c, mensagens, processadas, _ = cliente
+    enviar(c, mensagem("5511900000000", "wamid.B"))
+    assert processadas == [] and mensagens.de("wamid.B")["status"] == "ignorada"

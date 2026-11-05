@@ -67,8 +67,16 @@ def health():
         "qstash_url": s.qstash_url or "(padrão)",
         "groq_model": s.groq_model,
         "groq_stt_model": s.groq_stt_model,
-        "telefones_permitidos": len([t for t in s.telefones_permitidos.split(",") if t.strip()]) or "todos",
+        "telefones_permitidos": len([t for t in s.telefones_permitidos.split(",") if t.strip()]),
+        "config_versao": _versao_config(),
     }
+
+
+def _versao_config() -> str | None:
+    try:
+        return container.configuracoes().versao()
+    except Exception:
+        return None
 
 
 @app.get("/api/webhook")
@@ -102,8 +110,8 @@ async def receber_webhook(request: Request):
             log.exception("não consegui guardar o status de entrega")
 
     for msg in extrair_mensagens(payload):
-        if not telefone_permitido(msg.telefone, settings.telefones_permitidos):
-            log.info("ignorando número fora da lista de permitidos: %s", mascarar(msg.telefone))
+        if not _permitido(msg, settings):
+            log.info("ignorando número não aprovado: %s", mascarar(msg.telefone))
             _registrar_ignorada(msg)
             continue
         if not controle.primeira_vez(msg.msg_id):
@@ -122,6 +130,18 @@ async def receber_webhook(request: Request):
             except ServicoIndisponivel:
                 log.exception("serviço indisponível processando %s", msg.msg_id)
     return {"ok": True}
+
+
+def _permitido(msg: MensagemRecebida, settings) -> bool:
+    """TELEFONES_PERMITIDOS (transição) ou o cadastro no banco (comerciantes.permitido)."""
+    lista = settings.telefones_permitidos
+    if lista.strip() and telefone_permitido(msg.telefone, lista):
+        return True
+    try:
+        return container.acesso().verificar(msg.telefone, msg.nome) == "permitido"
+    except Exception:
+        log.exception("não consegui consultar o acesso; ignorando por segurança")
+        return False
 
 
 def _registrar_ignorada(msg: MensagemRecebida) -> None:

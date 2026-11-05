@@ -16,7 +16,7 @@ def limpar_caches(monkeypatch):
 
     def limpar():
         for f in (get_settings, container.redis, container.controle, container.fila, container.pipeline,
-                  container.comerciantes, container.mensagens):
+                  container.comerciantes, container.mensagens, container.configuracoes, container.acesso):
             f.cache_clear()
 
     limpar()
@@ -42,3 +42,12 @@ def test_sem_fila_no_preview(monkeypatch, limpar_caches):
     monkeypatch.setenv("QSTASH_TOKEN", "x")
     monkeypatch.setenv("PROCESSAR_SEM_FILA", "true")
     assert container.fila() is None
+
+
+def test_parametros_vem_das_configuracoes():
+    from app.fila.controle import MemoriaRedis
+    from app.servicos.configuracoes import Configuracoes
+
+    parametros, limites = container.parametros_de(Configuracoes(None, MemoriaRedis()), 1)
+    assert parametros.perguntar_valor_compra and parametros.confianca_minima == 0.7
+    assert limites.max_produtos == 40
