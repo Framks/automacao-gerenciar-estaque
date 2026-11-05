@@ -42,10 +42,18 @@ class Settings(BaseSettings):
     qstash_current_signing_key: str = ""
     qstash_next_signing_key: str = ""
 
+    # Isolamento do preview (variáveis só do ambiente Preview na Vercel):
+    # - prefixo nas chaves do Redis, para não misturar dedupe/cache com a produção;
+    # - processar na hora, sem fila: o QStash chamaria o worker da produção (PUBLIC_BASE_URL).
+    redis_prefixo: str = ""
+    processar_sem_fila: bool = False
+
     # URL pública do deploy (ex.: https://meu-bot.vercel.app), usada para o QStash chamar o worker.
     # Se vazia, usa o domínio de produção que a própria Vercel informa (VERCEL_PROJECT_PRODUCTION_URL).
     public_base_url: str = ""
     vercel_project_production_url: str = ""  # variável de sistema da Vercel, sem "https://"
+    vercel_env: str = ""  # production | preview | development (sistema da Vercel)
+    vercel_git_commit_sha: str = ""  # commit do deploy (sistema da Vercel)
 
     @property
     def base_url(self) -> str:

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 from app.domain import inventory
@@ -33,7 +35,7 @@ def test_compra_existente_recalcula_custo_medio_ponderado():
                 estoque_arroz())
     (p,) = r.estoque_alterado
     assert p.quantidade == 303
-    assert p.custo_medio == pytest.approx((3 * 2 + 300) / 303)
+    assert p.custo_medio == Decimal("1.0099")  # (3 × 2 + 300) / 303, com 4 casas
     assert p.linha == 2
 
 
@@ -136,7 +138,7 @@ def test_desfazer_ultima_compra():
     (m,) = r.movimentos
     assert (m.tipo, m.quantidade, m.referencia) == (TipoMovimento.AJUSTE, -300, "b")
     assert r.estoque_alterado[0].quantidade == 3
-    assert r.estoque_alterado[0].custo_medio == pytest.approx(2.0)
+    assert r.estoque_alterado[0].custo_medio == pytest.approx(Decimal(2), abs=Decimal("0.0001"))
 
 
 def test_desfazer_venda_devolve_ao_estoque():
@@ -163,3 +165,36 @@ def test_desfazer_sem_nada():
 def test_desfazer_compra_ja_vendida_nao_deixa_negativo():
     r = desfazer([mov("a", TipoMovimento.ENTRADA, 10)], estoque_arroz(4))
     assert not r.ok and not r.movimentos
+
+
+def test_valor_unitario_vira_total_no_codigo():
+    r = aplicar(intencao(Acao.COMPRA, dict(produto="feijão", quantidade=10, unidade="kg", valor_unitario=10)), {})
+    assert r.ok
+    (m,) = r.movimentos
+    assert (m.valor_unitario, m.valor_total) == (Decimal("10.0000"), Decimal("100.00"))
+    assert r.estoque_alterado[0].custo_medio == Decimal("10.0000")
+    assert r.mudancas[0].valor_total == Decimal("100.00")
+
+
+def test_total_vira_unitario_no_codigo():
+    r = aplicar(intencao(Acao.COMPRA, dict(produto="arroz", quantidade=3, unidade="kg", valor_total="10")), {})
+    (m,) = r.movimentos
+    assert (m.valor_unitario, m.valor_total) == (Decimal("3.3333"), Decimal("10.00"))
+
+
+def test_unitario_e_total_incoerentes_nao_grava():
+    r = aplicar(intencao(Acao.COMPRA, dict(produto="arroz", quantidade=2, valor_unitario=5, valor_total=50)), {})
+    assert not r.ok and not r.movimentos
+    assert "não bate" in r.problemas[0]
+
+
+def test_unitario_e_total_coerentes():
+    r = aplicar(intencao(Acao.COMPRA, dict(produto="arroz", quantidade=2, valor_unitario=5, valor_total=10)), {})
+    assert r.ok and r.movimentos[0].valor_total == Decimal("10.00")
+
+
+def test_centavos_somam_exatos():
+    r = aplicar(intencao(Acao.COMPRA, dict(produto="bala", quantidade=1, valor_total=0.1)), {})
+    r2 = aplicar(intencao(Acao.COMPRA, dict(produto="bala", quantidade=1, valor_total=0.2)),
+                 {"bala": r.estoque_alterado[0]})
+    assert r.movimentos[0].valor_total + r2.movimentos[0].valor_total == Decimal("0.30")

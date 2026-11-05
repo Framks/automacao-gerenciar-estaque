@@ -131,3 +131,14 @@ def test_telefone_permitido():
     assert telefone_permitido("558881061891", "5588981061891")  # wa_id sem o 9 bate com a lista com 9
     assert telefone_permitido("5588981061891", " +558881061891 , 5511999990000")
     assert not telefone_permitido("5585999990001", "5588981061891")
+
+
+def test_redis_com_prefixo_isola_ambientes():
+    from app.fila.controle import RedisComPrefixo
+
+    base = MemoriaRedis()
+    preview = Controle(RedisComPrefixo(base, "preview:"))
+    producao = Controle(base)
+    assert preview.primeira_vez("wamid.X")
+    assert producao.primeira_vez("wamid.X")  # a produção não enxerga a chave do preview
+    assert base.get("preview:wa:recebida:wamid.X") == "1"

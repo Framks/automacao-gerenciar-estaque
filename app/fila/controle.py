@@ -53,6 +53,38 @@ class Controle:
                 self._redis.delete(chave)
 
 
+class RedisComPrefixo:
+    """Põe um prefixo em todas as chaves (ex.: "preview:"), para dois ambientes dividirem o mesmo Redis."""
+
+    def __init__(self, redis, prefixo: str):
+        self._redis = redis
+        self._prefixo = prefixo
+
+    def get(self, key):
+        return self._redis.get(self._prefixo + key)
+
+    def set(self, key, value, ex=None, nx=False):
+        return self._redis.set(self._prefixo + key, value, ex=ex, nx=nx)
+
+    def delete(self, key):
+        return self._redis.delete(self._prefixo + key)
+
+    def incr(self, key):
+        return self._redis.incr(self._prefixo + key)
+
+    def expire(self, key, segundos):
+        return self._redis.expire(self._prefixo + key, segundos)
+
+    def lpush(self, key, value):
+        return self._redis.lpush(self._prefixo + key, value)
+
+    def ltrim(self, key, inicio, fim):
+        return self._redis.ltrim(self._prefixo + key, inicio, fim)
+
+    def lrange(self, key, inicio, fim):
+        return self._redis.lrange(self._prefixo + key, inicio, fim)
+
+
 class MemoriaRedis:
     """Substituto em memória do Redis, para testes e desenvolvimento local."""
 
@@ -77,6 +109,17 @@ class MemoriaRedis:
 
     def delete(self, key):
         self._dados.pop(key, None)
+
+    def incr(self, key):
+        atual = int(self.get(key) or 0) + 1
+        validade = self._dados.get(key, (None, None))[1]
+        self._dados[key] = (str(atual), validade)
+        return atual
+
+    def expire(self, key, segundos):
+        if key in self._dados:
+            self._dados[key] = (self._dados[key][0], time.monotonic() + segundos)
+        return True
 
     def lpush(self, key, value):
         lista = self._listas.setdefault(key, [])

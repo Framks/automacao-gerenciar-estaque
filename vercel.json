@@ -6,5 +6,9 @@
       "excludeFiles": "{tests/**,scripts/**,**/__pycache__/**}"
     }
   },
-  "git": { "deploymentEnabled": true }
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  }
 }

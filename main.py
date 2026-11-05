@@ -49,6 +49,8 @@ def health():
     ]
     return {
         "ok": True,
+        "ambiente": s.vercel_env or "local",
+        "commit": s.vercel_git_commit_sha[:7],
         "variaveis_faltando": faltando,
         "worker_url": s.worker_url,
         "qstash_url": s.qstash_url or "(padrão)",

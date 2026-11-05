@@ -1,5 +1,8 @@
 """Templates das respostas faladas. Frases curtas e simples, pensadas para virar áudio."""
 
+from decimal import ROUND_HALF_EVEN, Decimal
+
+from app.domain.dinheiro import parse_valor, reais
 from app.domain.models import Acao, Resultado, TipoMovimento
 from app.domain.units import unidade_falada
 
@@ -11,25 +14,25 @@ AJUDA = (
 )
 
 
-def fmt_num(valor: float) -> str:
-    valor = round(valor, 3)
-    if valor == int(valor):
+def fmt_num(valor: Decimal | float | int) -> str:
+    valor = parse_valor(valor).quantize(Decimal("0.001"), rounding=ROUND_HALF_EVEN)
+    if valor == valor.to_integral_value():
         return str(int(valor))
-    return f"{valor:.3f}".rstrip("0").replace(".", ",")
+    return f"{valor:f}".rstrip("0").replace(".", ",")
 
 
-def fmt_reais(valor: float) -> str:
-    centavos_total = round(valor * 100)
-    reais, centavos = divmod(centavos_total, 100)
+def fmt_reais(valor: Decimal | float | int) -> str:
+    centavos_total = int(reais(parse_valor(valor)) * 100)
+    inteiros, centavos = divmod(centavos_total, 100)
     partes = []
-    if reais:
-        partes.append(f"{reais} {'real' if reais == 1 else 'reais'}")
+    if inteiros:
+        partes.append(f"{inteiros} {'real' if inteiros == 1 else 'reais'}")
     if centavos:
         partes.append(f"{centavos} {'centavo' if centavos == 1 else 'centavos'}")
     return " e ".join(partes) or "0 reais"
 
 
-def _qtd(quantidade: float, unidade: str) -> str:
+def _qtd(quantidade: Decimal, unidade: str) -> str:
     return f"{fmt_num(quantidade)} {unidade_falada(unidade, quantidade)}"
 
 

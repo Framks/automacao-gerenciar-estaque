@@ -1,9 +1,12 @@
 """Modelos do domínio: o que a IA extrai da fala e o que fica gravado na planilha."""
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.domain.dinheiro import parse_valor
 
 
 class Acao(str, Enum):
@@ -16,9 +19,16 @@ class Acao(str, Enum):
 
 class Item(BaseModel):
     produto: str
-    quantidade: float | None = None
+    quantidade: Decimal | None = None
     unidade: str | None = None
-    valor_total: float | None = None
+    # O LLM informa só o que foi falado: o preço por unidade OU o total. A conta é do código.
+    valor_unitario: Decimal | None = None
+    valor_total: Decimal | None = None
+
+    @field_validator("quantidade", "valor_unitario", "valor_total", mode="before")
+    @classmethod
+    def _numero(cls, valor):
+        return parse_valor(valor)
 
 
 class Intencao(BaseModel):
@@ -32,16 +42,20 @@ class TipoMovimento(str, Enum):
     ENTRADA = "entrada"
     SAIDA = "saida"
     AJUSTE = "ajuste"
+    AJUSTE_VALOR = "ajuste_valor"  # completa/corrige o valor de uma entrada já gravada (não mexe na quantidade)
 
 
 @dataclass
 class ProdutoEstoque:
     produto: str
     unidade: str
-    quantidade: float
-    custo_medio: float | None = None
+    quantidade: Decimal
+    custo_medio: Decimal | None = None
     atualizado_em: str = ""
     linha: int | None = None  # linha na planilha (None = produto novo, ainda não gravado)
+
+    def __post_init__(self):
+        _decimais(self, "quantidade", "custo_medio")
 
 
 @dataclass
@@ -50,13 +64,17 @@ class Movimento:
     data_hora: str
     tipo: TipoMovimento
     produto: str
-    quantidade: float  # positiva em entrada/saida; com sinal (delta) em ajuste
+    quantidade: Decimal  # positiva em entrada/saida; com sinal (delta) em ajuste
     unidade: str
-    valor_total: float | None
-    valor_unitario: float | None
+    valor_total: Decimal | None
+    valor_unitario: Decimal | None
     texto_transcrito: str
     whatsapp_msg_id: str
     referencia: str = ""  # em ajustes de "desfazer": whatsapp_msg_id da mensagem desfeita
+    referencia_mov: str = ""  # em ajuste_valor: id do movimento cujo valor foi completado/corrigido
+
+    def __post_init__(self):
+        _decimais(self, "quantidade", "valor_total", "valor_unitario")
 
 
 @dataclass
@@ -65,11 +83,14 @@ class Mudanca:
 
     produto: str
     unidade: str
-    antes: float
-    depois: float
+    antes: Decimal
+    depois: Decimal
     tipo: TipoMovimento
-    quantidade: float
-    valor_total: float | None = None
+    quantidade: Decimal
+    valor_total: Decimal | None = None
+
+    def __post_init__(self):
+        _decimais(self, "antes", "depois", "quantidade", "valor_total")
 
 
 @dataclass
@@ -85,3 +106,11 @@ class Resultado:
     @property
     def ok(self) -> bool:
         return not self.problemas
+
+
+def _decimais(obj, *campos: str) -> None:
+    """Aceita int/float/str na construção (testes, planilha) e guarda sempre Decimal."""
+    for campo in campos:
+        valor = getattr(obj, campo)
+        if valor is not None and not isinstance(valor, Decimal):
+            setattr(obj, campo, parse_valor(valor))
