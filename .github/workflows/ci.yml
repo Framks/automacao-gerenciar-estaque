@@ -1,8 +1,11 @@
-# Testes em todo push e pull request.
+# Testes em todo pull request; deploy de produção só depois deles.
 #
-# O deploy é feito pela integração GitHub da própria Vercel (vercel.json: "git.deploymentEnabled": true):
-# cada push na main publica em produção, e cada pull request ganha um deploy de preview.
-# As variáveis do bot (WHATSAPP_*, GROQ_*, GOOGLE_*, ...) ficam na Vercel, em Settings > Environment Variables.
+# Fluxo (regra: "sempre fazer testes antes de subir em produção"):
+#   PR  -> testes + md-guard  (a Vercel cria um deploy de preview do PR, com as variáveis de Preview)
+#   merge na main -> testes -> deploy de produção pela API da Vercel -> /api/health da produção
+#
+# A main é protegida: só recebe merge de PR com os checks verdes. O deploy automático da Vercel
+# na main está desligado (vercel.json), então nada chega à produção sem passar por aqui.
 
 name: CI
 
@@ -14,7 +17,7 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   testes:
@@ -46,3 +49,35 @@ jobs:
           echo "O app não respondeu. Log do servidor:"
           cat uvicorn.log
           exit 1
+
+  # Regra 1: nenhum arquivo .md novo entra sem pedido (o README.md já existe e pode mudar).
+  md-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Recusar .md novo
+        run: |
+          novos=$(git diff --name-only --diff-filter=A "origin/${{ github.base_ref }}...HEAD" | grep -Ei '\.md$' | grep -v '^README\.md$' || true)
+          if [ -n "$novos" ]; then
+            echo "Arquivos .md novos não entram sem pedido (regra 1):"
+            echo "$novos"
+            exit 1
+          fi
+
+  deploy-producao:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: testes
+    runs-on: ubuntu-latest
+    environment: producao
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Deploy de produção (Vercel, a partir deste commit)
+        run: python3 scripts/ci/deploy_vercel.py --repo-id 1384419787 --ref main --sha "$GITHUB_SHA"

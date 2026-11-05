@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 PROMPT_SISTEMA = """Você interpreta falas de pequenos comerciantes sobre o estoque da loja.
 Responda APENAS com um JSON neste formato:
 {"acao": "compra|venda|consulta|desfazer|desconhecido",
- "itens": [{"produto": "arroz", "quantidade": 300, "unidade": "kg", "valor_total": 300.0}]}
+ "itens": [{"produto": "arroz", "quantidade": 300, "unidade": "kg", "valor_unitario": null, "valor_total": 300.0}]}
 
 Regras:
 - compra: comprou, chegou, recebeu, entrou mercadoria, repôs.
@@ -27,8 +27,10 @@ Regras:
   Se o produto falado for o mesmo de um dos produtos cadastrados, use exatamente o nome cadastrado.
 - unidade: uma destas: kg, g, l, ml, un, saco, cx, pct, fardo, duzia. Se não foi falada, use null.
 - quantidade: número (ex.: "meio quilo" = 0.5, "uma dúzia" = 1 com unidade "duzia").
-- valor_total: valor total da operação em reais, como número. Se falou preço por unidade, multiplique
-  pela quantidade. Se não falou valor, use null.
+- valores em reais, como número (ex.: "150,59" = 150.59). NÃO faça contas: copie o valor falado.
+  - valor_unitario: se o comerciante falou o preço por unidade ("cada", "o quilo", "a unidade", "o litro").
+  - valor_total: se falou o valor da operação inteira ("paguei 50", "por 300 reais", "custou 80").
+  - Se não falou valor, use null nos dois.
 - Uma fala pode ter vários itens."""
 
 

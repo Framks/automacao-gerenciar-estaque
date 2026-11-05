@@ -51,6 +51,6 @@ def normalizar_unidade(unidade: str | None) -> str | None:
     return _UNIDADES.get(chave, chave)
 
 
-def unidade_falada(unidade: str, quantidade: float) -> str:
+def unidade_falada(unidade: str, quantidade) -> str:
     singular, plural = _FALADO.get(unidade, (unidade, unidade))
     return singular if abs(quantidade) == 1 else plural

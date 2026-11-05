@@ -7,9 +7,11 @@ Abas:
 """
 
 import socket
+from decimal import Decimal
 
 from googleapiclient.errors import HttpError
 
+from app.domain.dinheiro import parse_valor
 from app.domain.models import Movimento, ProdutoEstoque, TipoMovimento
 from app.domain.units import chave_produto
 from app.errors import ServicoIndisponivel
@@ -85,7 +87,7 @@ class SheetsInventoryRepository:
             estoque[chave_produto(str(produto))] = ProdutoEstoque(
                 produto=str(produto),
                 unidade=str(unidade or "un"),
-                quantidade=_num(quantidade) or 0.0,
+                quantidade=_num(quantidade) or Decimal(0),
                 custo_medio=_num(custo),
                 atualizado_em=str(atualizado),
                 linha=i + 2,
@@ -102,7 +104,7 @@ class SheetsInventoryRepository:
             movimentos.append(
                 Movimento(
                     id=str(id_), data_hora=str(data_hora), tipo=TipoMovimento(tipo), produto=str(produto),
-                    quantidade=_num(qtd) or 0.0, unidade=str(unidade), valor_total=_num(valor),
+                    quantidade=_num(qtd) or Decimal(0), unidade=str(unidade), valor_total=_num(valor),
                     valor_unitario=_num(valor_un), texto_transcrito=str(texto),
                     whatsapp_msg_id=str(msg_id), referencia=str(ref),
                 )
@@ -147,28 +149,30 @@ class SheetsInventoryRepository:
 
 
 def _linha_estoque(p: ProdutoEstoque) -> list:
-    custo = round(p.custo_medio, 4) if p.custo_medio is not None else ""
-    return [p.produto, p.unidade, round(p.quantidade, 3), custo, p.atualizado_em]
+    return [p.produto, p.unidade, _numero(p.quantidade, 3), _vazio(p.custo_medio), p.atualizado_em]
 
 
 def _linha_movimento(m: Movimento) -> list:
     return [
-        m.id, m.data_hora, m.tipo.value, m.produto, round(m.quantidade, 3), m.unidade,
+        m.id, m.data_hora, m.tipo.value, m.produto, _numero(m.quantidade, 3), m.unidade,
         _vazio(m.valor_total), _vazio(m.valor_unitario), m.texto_transcrito, m.whatsapp_msg_id, m.referencia,
     ]
 
 
-def _vazio(valor: float | None):
-    return "" if valor is None else round(valor, 4)
+def _numero(valor: Decimal, casas: int) -> float:
+    """A API do Sheets recebe JSON: o Decimal vira número na borda, já arredondado."""
+    return float(round(valor, casas))
+
+
+def _vazio(valor: Decimal | None):
+    return "" if valor is None else _numero(valor, 4)
 
 
 def _completar(linha: list, tamanho: int) -> list:
     return list(linha) + [""] * (tamanho - len(linha))
 
 
-def _num(valor) -> float | None:
+def _num(valor) -> Decimal | None:
     if valor in ("", None):
         return None
-    if isinstance(valor, (int, float)):
-        return float(valor)
-    return float(str(valor).replace(",", "."))
+    return parse_valor(valor)

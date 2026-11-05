@@ -3,7 +3,7 @@
 from functools import lru_cache
 
 from app.config import get_settings
-from app.fila.controle import Controle, MemoriaRedis
+from app.fila.controle import Controle, MemoriaRedis, RedisComPrefixo
 from app.fila.qstash import Fila, VerificadorQStash
 from app.google_auth import servico_sheets
 from app.llm.interpreter import GroqInterpreter
@@ -22,7 +22,8 @@ def redis():
         return MemoriaRedis()  # desenvolvimento local
     from upstash_redis import Redis
 
-    return Redis(url=s.upstash_redis_rest_url, token=s.upstash_redis_rest_token)
+    cliente = Redis(url=s.upstash_redis_rest_url, token=s.upstash_redis_rest_token)
+    return RedisComPrefixo(cliente, s.redis_prefixo) if s.redis_prefixo else cliente
 
 
 @lru_cache
@@ -33,7 +34,9 @@ def controle() -> Controle:
 @lru_cache
 def fila() -> Fila | None:
     s = get_settings()
-    return Fila(s.qstash_token, s.worker_url, s.qstash_url) if s.qstash_token else None
+    if not s.qstash_token or s.processar_sem_fila:
+        return None
+    return Fila(s.qstash_token, s.worker_url, s.qstash_url)
 
 
 @lru_cache

@@ -17,6 +17,20 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+## Como subir uma mudança
+
+A `main` é protegida: nada chega à produção sem passar por PR e testes.
+
+1. Crie uma branch e abra um PR. O CI roda os testes, o teste de fumaça e o `md-guard` (recusa arquivos `.md` novos). A Vercel cria um deploy de preview do PR.
+2. O preview usa as variáveis de *Preview* da Vercel: banco próprio, prefixo `preview:` no Redis e processamento sem fila (`PROCESSAR_SEM_FILA`). A fila chamaria o worker da produção.
+3. Teste o preview sem mexer no webhook da Meta. O script assina o payload como a Meta faria, e a resposta chega no seu WhatsApp:
+   ```bash
+   python scripts/simular_webhook.py --url https://<preview>.vercel.app --texto "comprei 2 kg de arroz"
+   python scripts/simular_webhook.py --url https://<preview>.vercel.app --falar "vendi 1 quilo de arroz"
+   ```
+   O `--falar` gera um áudio com a voz do bot e o envia como mensagem de voz, passando pela transcrição. O número vem de `TELEFONE_TESTE`, e `VERCEL_PROTECTION_BYPASS` passa pela proteção do preview. As duas ficam no `.env`.
+4. Com os checks verdes, faça o merge. O CI roda os testes de novo, faz o deploy de produção pela API da Vercel (o deploy automático da `main` está desligado no `vercel.json`) e confere o `/api/health`, que mostra o commit publicado.
+
 ## Setup (Fase 0)
 
 Preencha um `.env` na raiz conforme cria cada conta (ele e o `.env.example` ficam fora do Git). A lista completa de variáveis, com os valores padrão, está em `app/config.py`. Em produção, as variáveis ficam na Vercel (*Settings > Environment Variables*).

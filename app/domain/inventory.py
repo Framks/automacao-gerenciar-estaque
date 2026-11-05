@@ -4,7 +4,9 @@ Tudo ou nada: se qualquer item de uma mensagem tiver problema, nada é gravado.
 """
 
 from dataclasses import replace
+from decimal import Decimal
 
+from app.domain.dinheiro import ValoresIncoerentes, quantidade, resolver_valores, unitario
 from app.domain.models import (
     Acao,
     Intencao,
@@ -19,7 +21,7 @@ from app.domain.units import chave_produto, nome_produto, normalizar_unidade, un
 
 Estoque = dict[str, ProdutoEstoque]  # chave_produto -> produto
 
-_EPS = 1e-9
+ZERO = Decimal(0)
 
 
 def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, agora: str) -> Resultado:
@@ -35,9 +37,16 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
     for i, item in enumerate(intencao.itens):
         chave = chave_produto(item.produto)
         nome = nome_produto(item.produto)
-        q = item.quantidade
+        q = quantidade(item.quantidade) if item.quantidade is not None else None
         if not q or q <= 0:
             resultado.problemas.append(f"Não entendi a quantidade de {nome}.")
+            continue
+        try:
+            valor_unitario, valor_total = resolver_valores(q, item.valor_unitario, item.valor_total)
+        except ValoresIncoerentes:
+            resultado.problemas.append(
+                f"Não entendi o valor de {nome}: o preço por unidade não bate com o total. Pode repetir?"
+            )
             continue
 
         atual = trabalho.get(chave) or (replace(estoque[chave]) if chave in estoque else None)
@@ -51,21 +60,18 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
 
         if intencao.acao == Acao.COMPRA:
             if atual is None:
-                atual = ProdutoEstoque(produto=nome, unidade=unidade or "un", quantidade=0.0)
+                atual = ProdutoEstoque(produto=nome, unidade=unidade or "un", quantidade=ZERO)
             antes = atual.quantidade
             depois = antes + q
-            if item.valor_total is not None:
-                if atual.custo_medio is None or antes <= 0:
-                    atual.custo_medio = item.valor_total / q
-                else:
-                    atual.custo_medio = (antes * atual.custo_medio + item.valor_total) / depois
+            if valor_total is not None:
+                atual.custo_medio = custo_medio_apos_entrada(atual.custo_medio, antes, q, valor_total)
             tipo = TipoMovimento.ENTRADA
         else:
             if atual is None:
                 resultado.problemas.append(f"Não achei {nome} no estoque.")
                 continue
             antes = atual.quantidade
-            if q > antes + _EPS:
+            if q > antes:
                 resultado.problemas.append(
                     f"Só tem {fmt_num(antes)} {unidade_falada(atual.unidade, antes)} de {atual.produto}, "
                     f"não dá para vender {fmt_num(q)}."
@@ -85,8 +91,8 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
                 produto=atual.produto,
                 quantidade=q,
                 unidade=atual.unidade,
-                valor_total=item.valor_total,
-                valor_unitario=(item.valor_total / q) if item.valor_total is not None else None,
+                valor_total=valor_total,
+                valor_unitario=valor_unitario,
                 texto_transcrito=texto,
                 whatsapp_msg_id=msg_id,
             )
@@ -99,11 +105,24 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
                 depois=depois,
                 tipo=tipo,
                 quantidade=q,
-                valor_total=item.valor_total,
+                valor_total=valor_total,
             )
         )
 
     return _fechar(resultado, trabalho)
+
+
+def custo_medio_apos_entrada(
+    custo_atual: Decimal | None, saldo_antes: Decimal, qtd: Decimal, valor_total: Decimal
+) -> Decimal:
+    """Média ponderada do custo depois de uma entrada com valor.
+
+    Sem custo anterior (ou sem saldo), o custo passa a ser o da entrada. Saldo anterior sem custo
+    conhecido não entra na média: só sabemos o preço do que chegou agora.
+    """
+    if custo_atual is None or saldo_antes <= 0:
+        return unitario(valor_total / qtd)
+    return unitario((saldo_antes * custo_atual + valor_total) / (saldo_antes + qtd))
 
 
 def desfazer(movimentos: list[Movimento], estoque: Estoque, *, texto: str, msg_id: str, agora: str) -> Resultado:
@@ -125,7 +144,7 @@ def desfazer(movimentos: list[Movimento], estoque: Estoque, *, texto: str, msg_i
             continue
         antes = atual.quantidade
         if m.tipo == TipoMovimento.ENTRADA:
-            if m.quantidade > antes + _EPS:
+            if m.quantidade > antes:
                 resultado.problemas.append(
                     f"Não dá para desfazer: só tem {fmt_num(antes)} {unidade_falada(atual.unidade, antes)} "
                     f"de {atual.produto}."
@@ -133,8 +152,8 @@ def desfazer(movimentos: list[Movimento], estoque: Estoque, *, texto: str, msg_i
                 continue
             delta = -m.quantidade
             depois = antes + delta
-            if m.valor_total is not None and atual.custo_medio is not None and depois > _EPS:
-                atual.custo_medio = max((antes * atual.custo_medio - m.valor_total) / depois, 0.0)
+            if m.valor_total is not None and atual.custo_medio is not None and depois > 0:
+                atual.custo_medio = max(unitario((antes * atual.custo_medio - m.valor_total) / depois), ZERO)
         else:
             delta = m.quantidade
             depois = antes + delta
