@@ -147,6 +147,11 @@ def contar(fabrica_) -> dict[str, int]:
         }
 
 
+def movimentos_fora_da_migracao(fabrica_) -> int:
+    with transacao(fabrica_) as s:
+        return s.scalar(select(func.count()).select_from(MovimentoDB).where(MovimentoDB.autor != "migracao-sheets"))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -176,6 +181,11 @@ def main() -> int:
         return 0
 
     f = fabrica(args.url or s.banco_url)
+    estranhos = movimentos_fora_da_migracao(f)
+    if estranhos:
+        print(f"O banco de destino já tem {estranhos} movimento(s) que não vieram da planilha (uso real ou teste).")
+        print("A migração só acrescenta e nunca sobrescreve saldos: comece de um banco vazio. Nada foi gravado.")
+        return 1
     print("gravados agora:", gravar(f, dados, s.telefones_permitidos, s.timezone))
     destino = contar(f)
     print("destino (Postgres):", destino)

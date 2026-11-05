@@ -8,7 +8,7 @@ from app.fila.controle import MemoriaRedis
 from app.storage.pg import PgInventoryRepository
 from app.storage.sheets_repo import SheetsInventoryRepository
 from app.storage.tenants import TenantStore
-from scripts.migrar_sheets_postgres import conferir, contar, gravar, ler_sheets
+from scripts.migrar_sheets_postgres import conferir, contar, gravar, ler_sheets, movimentos_fora_da_migracao
 from tests.test_storage import FakeSheets
 
 
@@ -75,3 +75,13 @@ def test_permitido_vem_da_lista(fabrica_pg):
     gravar(fabrica_pg, ler_sheets(_planilha(), "S"), "", "America/Fortaleza")
     with transacao(fabrica_pg) as s:
         assert s.scalar(select(ComercianteDB.permitido)) is True  # lista vazia = todos
+
+
+def test_detecta_banco_com_uso_real(fabrica_pg):
+    gravar(fabrica_pg, ler_sheets(_planilha(), "S"), "", "America/Fortaleza")
+    assert movimentos_fora_da_migracao(fabrica_pg) == 0
+    repo = PgInventoryRepository(fabrica_pg, 1)
+    r = inventory.aplicar(Intencao(acao=Acao.COMPRA, itens=[Item(produto="arroz", quantidade=2)]),
+                          repo.carregar_estoque(), texto="teste", msg_id="z", agora="2026-11-04 21:00:00")
+    repo.salvar(r.movimentos, r.estoque_alterado)
+    assert movimentos_fora_da_migracao(fabrica_pg) == 1
