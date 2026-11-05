@@ -47,6 +47,10 @@ jobs:
       - name: Rodar testes
         run: pytest -q
 
+      # O front do admin usa um cliente gerado deste esquema: mudou a API, tem que regenerar (npm run gerar-api).
+      - name: openapi.json do admin em dia com a API
+        run: python scripts/ci/exportar_openapi.py && git diff --exit-code admin/openapi.json
+
       # Sobe o app do mesmo jeito que a Vercel importa (main.py) e chama /api/health.
       # Pega erros de importação/dependência antes de chegarem em produção.
       - name: Teste de fumaça (app sobe e responde)

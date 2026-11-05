@@ -1,0 +1,29 @@
+# Front do painel admin (pasta admin/, segundo projeto da Vercel): só roda quando admin/ ou a API mudam.
+name: Admin
+
+on:
+  pull_request:
+    paths: ["admin/**", "app/admin/**", ".github/workflows/admin.yml"]
+  push:
+    branches: [main]
+    paths: ["admin/**", "app/admin/**", ".github/workflows/admin.yml"]
+
+jobs:
+  front:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - name: Cliente da API gerado e em dia com o openapi.json
+        run: npm run gerar-api && git diff --exit-code src/api/esquema.ts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
