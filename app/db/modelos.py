@@ -138,6 +138,7 @@ class MensagemDB(Base):
 
     id: Mapped[int] = _id()
     comerciante_id: Mapped[int | None] = _comerciante_fk(nullable=True)
+    telefone_mascarado: Mapped[str] = mapped_column(String(20), nullable=False, server_default="")  # 5588****1891
     direcao: Mapped[str] = mapped_column(String(8), nullable=False)
     wa_msg_id: Mapped[str | None] = mapped_column(Text, unique=True)
     tipo: Mapped[str] = mapped_column(String(10), nullable=False, server_default="text")  # audio | text | image

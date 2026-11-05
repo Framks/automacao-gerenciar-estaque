@@ -42,36 +42,44 @@ def verificador_qstash() -> VerificadorQStash:
     return VerificadorQStash(s.qstash_current_signing_key, s.qstash_next_signing_key)
 
 
-def _armazenamento():
-    """(comerciantes, repositorio) conforme ARMAZENAMENTO: "sheets" (padrão) ou "postgres"."""
+def _fabrica():
+    from app.db.engine import fabrica
+
     s = get_settings()
-    if s.armazenamento == "postgres":
-        from app.db.engine import fabrica
-        from app.storage.pg import PgComerciantes, PgInventoryRepository
+    if s.armazenamento != "postgres" or not s.banco_url:
+        raise RuntimeError("a conversa (F2) precisa do Postgres: ARMAZENAMENTO=postgres e DATABASE_URL")
+    return fabrica(s.banco_url)
 
-        f = fabrica(s.banco_url)
-        return PgComerciantes(f, redis(), s.timezone), lambda c: PgInventoryRepository(f, c.id, s.timezone)
 
-    from app.google_auth import servico_sheets
-    from app.storage.sheets_repo import SheetsInventoryRepository
-    from app.storage.tenants import TenantStore
+@lru_cache
+def comerciantes():
+    from app.storage.pg import PgComerciantes
 
-    sheets = servico_sheets(s)
-    return (TenantStore(sheets, s.spreadsheet_id, redis()),
-            lambda c: SheetsInventoryRepository(sheets, s.spreadsheet_id, c.telefone))
+    s = get_settings()
+    return PgComerciantes(_fabrica(), redis(), s.timezone)
+
+
+@lru_cache
+def mensagens():
+    from app.storage.pg_conversa import PgMensagens
+
+    return PgMensagens(_fabrica(), get_settings().timezone)
 
 
 @lru_cache
 def pipeline() -> Pipeline:
+    from app.storage.pg_conversa import PgLoja
+
     s = get_settings()
-    comerciantes, repositorio = _armazenamento()
+    f = _fabrica()
     return Pipeline(
         whatsapp=WhatsAppCloudClient(s.whatsapp_token, s.whatsapp_phone_number_id, s.graph_api_version),
         stt=GroqWhisperSTT(s.groq_api_key, s.groq_stt_model),
         interpreter=GroqInterpreter(s.groq_api_key, s.groq_model),
         tts=EdgeTTS(s.tts_voice),
-        tenants=comerciantes,
-        repositorio=repositorio,
+        tenants=comerciantes(),
+        loja=lambda c: PgLoja(f, c.id, s.timezone),
+        mensagens=mensagens(),
         controle=controle(),
         timezone=s.timezone,
     )

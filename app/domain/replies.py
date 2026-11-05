@@ -89,3 +89,110 @@ def _juntar(partes: list[str]) -> str:
     if len(partes) <= 1:
         return "".join(partes)
     return ", ".join(partes[:-1]) + " e " + partes[-1]
+
+
+# --- conversa (F2): perguntas, completar, despesas -------------------------------------------------------
+
+def qtd(quantidade: Decimal, unidade: str) -> str:
+    return _qtd(quantidade, unidade)
+
+
+def preco_unitario(valor: Decimal, unidade: str) -> str:
+    singular = unidade_falada(unidade, 1)
+    return f"{fmt_reais(valor)} {'a' if unidade in ('un', 'cx', 'duzia') else 'o'} {singular}"
+
+
+def descrever_item(tipo: str, produto: str, quantidade: Decimal | None, unidade: str | None,
+                   total: Decimal | None) -> str:
+    """"uma compra de 10 quilos de feijão por 100 reais" """
+    artigo = "uma compra" if tipo == "compra" else "uma venda"
+    partes = [artigo]
+    if quantidade:
+        partes.append(f"de {_qtd(quantidade, unidade or 'un')} de {produto}")
+    else:
+        partes.append(f"de {produto}")
+    if total is not None:
+        partes.append(f"por {fmt_reais(total)}")
+    return " ".join(partes)
+
+
+def resumo_entrada(quantidade: Decimal, unidade: str, produto: str) -> str:
+    """"os 10 quilos de feijão" """
+    return f"{'o' if quantidade == 1 else 'os'} {_qtd(quantidade, unidade)} de {produto}"
+
+
+def pergunta_valor(tipo: str, produto: str) -> str:
+    if tipo == "venda":
+        return f"Por quanto você vendeu o {produto}?"
+    return f"Quanto você pagou no {produto}? Pode falar o preço do quilo, da unidade ou o total."
+
+
+def pergunta_quantidade(produto: str, unidade: str | None) -> str:
+    if unidade:
+        return f"Quantos {unidade_falada(unidade, 2)} de {produto}?"
+    return f"Quanto de {produto}? Fale a quantidade e a unidade, por exemplo: 5 quilos."
+
+
+def pergunta_unidade(produto: str) -> str:
+    return f"O {produto} é em quilo, unidade ou litro?"
+
+
+def pergunta_categoria(valor: Decimal) -> str:
+    return f"Os {fmt_reais(valor)} foram gastos com quê?"
+
+
+def pergunta_valor_despesa() -> str:
+    return "Quanto foi o gasto?"
+
+
+def valor_completado(produto: str, unidade: str, quantidade: Decimal, unitario: Decimal, total: Decimal,
+                     custo: Decimal | None, tipo: str) -> str:
+    if tipo == "venda":
+        return f"Certo! A venda de {_qtd(quantidade, unidade)} de {produto} ficou em {fmt_reais(total)}."
+    frase = (f"Certo! O {produto} saiu a {preco_unitario(unitario, unidade)}, "
+             f"{fmt_reais(total)} no total.")
+    if custo is not None:
+        frase += f" O custo do {produto} agora é {preco_unitario(custo, unidade)}."
+    return frase
+
+
+def quantidade_corrigida(produto: str, unidade: str, antes: Decimal, depois: Decimal) -> str:
+    return f"Corrigido! {produto.capitalize()}: tinha {_qtd(antes, unidade)}, agora tem {_qtd(depois, unidade)}."
+
+
+def despesa_anotada(valor: Decimal, categoria_falada: str | None, descricao: str) -> str:
+    sobre = f" com {descricao}" if descricao else (f" com {categoria_falada}" if categoria_falada else "")
+    return f"Anotei um gasto de {fmt_reais(valor)}{sobre}."
+
+
+def retirada_anotada(valor: Decimal) -> str:
+    return f"Anotei uma retirada de {fmt_reais(valor)} do caixa."
+
+
+def despesa_completada(descricao: str, categoria_falada: str) -> str:
+    return f"Certo! Anotei que foi com {descricao or categoria_falada}."
+
+
+def gastos(total: Decimal, quantidade: int, periodo: str, maiores: list[tuple[str, Decimal]],
+           categoria_falada: str | None = None) -> str:
+    quando = {"hoje": "hoje", "semana": "nos últimos 7 dias"}.get(periodo, "este mês")
+    sobre = f" com {categoria_falada}" if categoria_falada else ""
+    if not quantidade:
+        return f"Você não anotou gastos{sobre} {quando}."
+    frase = f"Você gastou {fmt_reais(total)}{sobre} {quando}."
+    if maiores and not categoria_falada and len(maiores) > 1:
+        frase += " Os maiores: " + _juntar([f"{nome}, {fmt_reais(v)}" for nome, v in maiores]) + "."
+    return frase
+
+
+def lancamento_desfeito(valor: Decimal, tipo: str) -> str:
+    return f"Pronto, desfiz {'o gasto' if tipo == 'despesa' else 'a retirada'} de {fmt_reais(valor)}."
+
+
+CANCELADO = "Tudo bem, deixei como estava."
+NADA_PARA_CONFIRMAR = "Não tem nada esperando confirmação."
+NADA_PENDENTE = "Não tem nenhuma anotação esperando dado."
+CONVERSA = "Oi! Estou aqui para anotar seu estoque e seus gastos. " + AJUDA
+CORRIGIR_PRODUTO = "Para trocar o produto, diga: desfazer. E depois fale a anotação de novo."
+NAO_ACHEI_ANOTACAO = "Não achei a anotação para corrigir."
+DESPESAS_DESLIGADAS = "Ainda não estou anotando gastos. " + AJUDA

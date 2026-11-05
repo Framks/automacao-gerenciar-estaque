@@ -22,8 +22,8 @@ class MensagemRecebida:
 
 class WhatsApp(Protocol):
     def baixar_midia(self, media_id: str) -> bytes: ...
-    def enviar_texto(self, para: str, texto: str) -> None: ...
-    def enviar_audio(self, para: str, audio: AudioGerado) -> None: ...
+    def enviar_texto(self, para: str, texto: str) -> str: ...  # devolve o wa_msg_id da mensagem enviada
+    def enviar_audio(self, para: str, audio: AudioGerado) -> str: ...
 
 
 def assinatura_valida(corpo: bytes, cabecalho: str | None, app_secret: str) -> bool:
@@ -49,6 +49,7 @@ def extrair_status(payload: dict) -> list[dict]:
                     "status": st.get("status"),
                     "para": mascarar(st.get("recipient_id", "")),
                     "msg_id": st.get("id", "")[-12:],
+                    "wa_msg_id": st.get("id", ""),
                     "quando": st.get("timestamp"),
                     "erros": erros,
                 })
@@ -124,19 +125,19 @@ class WhatsAppCloudClient:
         _checar(arquivo, "baixar mídia")
         return arquivo.content
 
-    def enviar_texto(self, para: str, texto: str) -> None:
-        self._enviar(para, {"type": "text", "text": {"body": texto}})
+    def enviar_texto(self, para: str, texto: str) -> str:
+        return self._enviar(para, {"type": "text", "text": {"body": texto}})
 
-    def enviar_audio(self, para: str, audio: AudioGerado) -> None:
+    def enviar_audio(self, para: str, audio: AudioGerado) -> str:
         upload = self._http.post(
             f"{self._base}/{self._phone_number_id}/media",
             data={"messaging_product": "whatsapp", "type": audio.mime_type},
             files={"file": (f"resposta.{audio.extensao}", audio.conteudo, audio.mime_type)},
         )
         _checar(upload, "subir áudio")
-        self._enviar(para, {"type": "audio", "audio": {"id": upload.json()["id"]}})
+        return self._enviar(para, {"type": "audio", "audio": {"id": upload.json()["id"]}})
 
-    def _enviar(self, para: str, conteudo: dict) -> None:
+    def _enviar(self, para: str, conteudo: dict) -> str:
         resposta = self._http.post(
             f"{self._base}/{self._phone_number_id}/messages",
             json={
@@ -147,3 +148,5 @@ class WhatsAppCloudClient:
             },
         )
         _checar(resposta, f"enviar {conteudo['type']}")
+        mensagens = resposta.json().get("messages") or [{}]
+        return mensagens[0].get("id", "")

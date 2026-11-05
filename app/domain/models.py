@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from app.domain.dinheiro import parse_valor
 
@@ -18,17 +18,27 @@ class Acao(str, Enum):
 
 
 class Item(BaseModel):
-    produto: str
+    produto: str = ""
     quantidade: Decimal | None = None
     unidade: str | None = None
     # O LLM informa só o que foi falado: o preço por unidade OU o total. A conta é do código.
     valor_unitario: Decimal | None = None
     valor_total: Decimal | None = None
 
+    @field_validator("produto", mode="before")
+    @classmethod
+    def _produto(cls, valor):
+        return "" if valor is None else str(valor)
+
     @field_validator("quantidade", "valor_unitario", "valor_total", mode="before")
     @classmethod
     def _numero(cls, valor):
         return parse_valor(valor)
+
+    @field_serializer("quantidade", "valor_unitario", "valor_total", when_used="json")
+    def _numero_json(self, valor):
+        # número no JSON (não texto): "10.000" voltaria como dez mil no parse pt-BR
+        return None if valor is None else float(valor)
 
 
 class Intencao(BaseModel):

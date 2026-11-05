@@ -3,6 +3,7 @@
 - GET  /api/webhook : verificação do webhook pela Meta
 - POST /api/webhook : recebe mensagens, valida, descarta duplicadas e enfileira (responde 200 rápido)
 - POST /api/worker  : chamado pelo QStash; roda o pipeline completo
+- POST /api/tarefas/limpeza : agendado no QStash; expira pendências e aplica a retenção das mensagens
 """
 
 import logging
@@ -96,12 +97,14 @@ async def receber_webhook(request: Request):
             log.info("entrega: %s para %s", evento["status"], evento["para"])
         try:
             controle.registrar_status(evento)
+            container.mensagens().atualizar_entrega(evento["wa_msg_id"], evento["status"], evento["erros"])
         except Exception:
             log.exception("não consegui guardar o status de entrega")
 
     for msg in extrair_mensagens(payload):
         if not telefone_permitido(msg.telefone, settings.telefones_permitidos):
             log.info("ignorando número fora da lista de permitidos: %s", mascarar(msg.telefone))
+            _registrar_ignorada(msg)
             continue
         if not controle.primeira_vez(msg.msg_id):
             continue
@@ -121,6 +124,16 @@ async def receber_webhook(request: Request):
     return {"ok": True}
 
 
+def _registrar_ignorada(msg: MensagemRecebida) -> None:
+    """Fica no banco que chegou algo de um número não permitido: só o telefone mascarado e a hora."""
+    try:
+        mensagens = container.mensagens()
+        mid, _ = mensagens.registrar_entrada(None, msg.msg_id, msg.tipo, "", mascarar(msg.telefone))
+        mensagens.atualizar(mid, status="ignorada")
+    except Exception:
+        log.exception("não consegui registrar a mensagem ignorada")
+
+
 @app.post("/api/worker")
 async def worker(request: Request):
     corpo = (await request.body()).decode()
@@ -135,3 +148,18 @@ async def worker(request: Request):
         log.warning("tentar de novo depois: %s", e)
         return Response(status_code=503)  # QStash tenta de novo
     return {"ok": True}
+
+
+@app.post("/api/tarefas/limpeza")
+async def limpeza(request: Request):
+    """Agendada no QStash (assinada como o worker): expira pendências vencidas e apaga mensagens antigas."""
+    corpo = (await request.body()).decode()
+    settings = get_settings()
+    url = settings.base_url + "/api/tarefas/limpeza"
+    if not container.verificador_qstash().valido(corpo, request.headers.get("Upstash-Signature"), url):
+        return Response(status_code=401)
+    mensagens = container.mensagens()
+    expiradas = mensagens.expirar_pendencias()
+    apagadas = mensagens.limpar(settings.retencao_mensagens_dias)
+    log.info("limpeza: %d pendências expiradas, %d mensagens apagadas", expiradas, apagadas)
+    return {"ok": True, "pendencias_expiradas": expiradas, "mensagens_apagadas": apagadas}

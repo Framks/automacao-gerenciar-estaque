@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     bot_database_url: str = ""
     # Onde ficam estoque e cadastro: "sheets" (Google Sheets) ou "postgres".
     armazenamento: str = "sheets"
+    retencao_mensagens_dias: int = 90  # na F3-01 vira configuração no banco
 
     # Voz e fuso
     tts_voice: str = "pt-BR-FranciscaNeural"  # edge-tts; outras: pt-BR-AntonioNeural, pt-BR-ThalitaMultilingualNeural

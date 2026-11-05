@@ -71,14 +71,28 @@ Rodar localmente: `uvicorn main:app --reload`. Sem `UPSTASH_*` e `QSTASH_TOKEN`,
 |---|---|
 | `main.py` | Rotas HTTP (webhook, worker e health); entrada detectada pela Vercel |
 | `app/pipeline.py` | Orquestra o fluxo de uma mensagem |
-| `app/domain/` | Regras do estoque, unidades e textos de resposta (sem rede, 100% testado) |
-| `app/llm/interpreter.py` | Fala → JSON (Groq) |
+| `app/domain/` | Regras do estoque, dinheiro (`Decimal`), operações v2, caixa, unidades e textos de resposta (sem rede) |
+| `app/conversa/` | Motor da conversa: pendências (o que falta perguntar), confirmação em caso de dúvida e contexto para a IA |
+| `app/llm/interpreter.py` | Fala + contexto → operações em JSON (Groq). A IA só interpreta; o código decide e calcula |
+| `app/observabilidade/` | Tempo por etapa e etapa do erro de cada mensagem (tabela `mensagens`) |
+| `app/db/`, `migrations/` | Postgres (Neon): schema e migrações (Alembic) |
+| `app/servicos/` | Casos de uso compartilhados com o admin (exportação CSV) |
 | `app/speech/` | Transcrição (Groq Whisper) e voz (edge-tts + conversão OGG/Opus) |
-| `app/storage/` | Google Sheets (conta de serviço) e cadastro automático de comerciantes |
+| `app/storage/` | Postgres (estoque, conversa, mensagens) e o Google Sheets antigo (só para a migração) |
 | `app/fila/` | QStash (fila), descarte de duplicadas e trava por telefone (Redis) |
 | `app/container.py` | Monta as implementações reais; é o único lugar a mudar para trocar de provedor |
 
-## Planilhas
+## Conversa e precisão
+
+- Cada fala vira uma lista de operações: compra, venda, despesa, retirada, completar, corrigir, consulta, desfazer, confirmar, cancelar ou conversa.
+- **Falta um dado obrigatório** (ex.: a quantidade): nada é gravado, e o bot pergunta.
+- **Falta um dado desejável** (ex.: o valor da compra, a categoria do gasto): o bot grava e pergunta. A resposta vira um `ajuste_valor` no livro-caixa, sem reescrever o original.
+- **Em caso de dúvida**, o bot confirma antes de gravar: confiança baixa, valor sem verbo ("o feijão foi 10 reais"), preço muito fora do custo ou valor alto.
+- Toda mensagem fica na tabela `mensagens`, com transcrição, intenção, status, etapa do erro e tempo por etapa.
+- **Avaliação do interpretador:** rode `python scripts/avaliar_interpretador.py` antes de mudar o prompt ou o modelo. São 68 casos, e os casos críticos não podem falhar.
+- **Limpeza diária:** `python scripts/agendar_limpeza.py` agenda no QStash a expiração das pendências e a retenção das mensagens.
+
+## Planilhas (antigo, antes do Postgres)
 
 Uma planilha só (`SPREADSHEET_ID`), com as abas:
 
