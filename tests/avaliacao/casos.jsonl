@@ -89,7 +89,7 @@
 {"id": "f6-caixa-hoje", "fala": "como foi o caixa hoje?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["hoje", null]}], "critico": true}
 {"id": "f6-caixa-vendi-hoje", "fala": "o que eu vendi hoje?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["hoje", null], "formato": "itens"}]}
 {"id": "f6-caixa-ontem", "fala": "me manda o relatório de ontem", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": "ontem"}]}
-{"id": "f6-caixa-mes", "fala": "como foram as vendas desse mês?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": "mes"}]}
+{"id": "f6-caixa-mes", "fala": "como foram as vendas desse mês?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["mes", "mes:10"]}]}
 {"id": "f6-caixa-outubro", "fala": "quero o relatório de outubro", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["mes:10", "outubro"]}]}
 {"id": "f6-caixa-dia-3", "fala": "como foi o caixa do dia 3?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["dia:3", "dia:03"]}]}
 {"id": "f6-caixa-grafico", "fala": "manda o gráfico do mês", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["mes", null], "formato": "grafico"}]}

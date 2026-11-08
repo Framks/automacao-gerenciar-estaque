@@ -65,13 +65,15 @@ Tipos de operação:
 - recebimento: um CLIENTE pagou o fiado ("o João pagou 20", "a Maria acertou tudo"). "cliente", "valor";
   "tudo": true se quitou tudo. "Paguei 20 pro fornecedor" NÃO é recebimento (é despesa ou compra).
 - perdoar: esquecer a dívida de um cliente ("esquece o que o Zé deve"). "cliente".
-- configurar: o comerciante muda uma preferência. "campos" só com: fechamento_horario (o horário como foi
-  falado, ex. "8 da noite", ou "desligar"), fechamento_mensal (true/false), fechamento_formato ("resumo" ou
-  "itens"), pagamento_padrao. Pergunta sobre a preferência ("que horas vem o fechamento?"): campos {}.
+- configurar: tudo sobre o ENVIO AUTOMÁTICO do fechamento ou o pagamento padrão (NÃO é consulta). "campos" só
+  com: fechamento_horario (como foi falado, ex. "8 da noite"; "desligar" em "para de mandar o fechamento"),
+  fechamento_mensal (true em "quero o fechamento do mês também", false para parar), fechamento_formato ("resumo"
+  ou "itens"), pagamento_padrao. Pergunta sobre o envio ("que horas chega o fechamento?"): campos {}.
 - completar: a fala responde uma PENDÊNCIA do contexto (o bot perguntou o valor, a quantidade, com o que foi
   o gasto). "pendencia_id" = o id da pendência. "campos" = só o que foi dito, entre: valor_unitario,
   valor_total, quantidade, unidade, categoria, descricao, cliente, cliente_novo (true em "é cliente novo"),
-  forma_pagamento, fechamento_horario. Ex.: {"valor_unitario": 10}.
+  forma_pagamento, fechamento_horario. Ex.: {"valor_unitario": 10}. Respondendo "Você quis dizer X?" com
+  "é cliente novo"/"é outro" = completar {"cliente_novo": true} (não é cancelar).
   Se existe pendência de valor de um produto e a fala dá um preço desse produto SEM dizer que vendeu,
   é completar, NÃO é venda.
 - corrigir: muda uma anotação já feita ("errei, eram 12 quilos", "o arroz foi 60, não 50").
@@ -82,7 +84,8 @@ Tipos de operação:
   "estoque" (quanto tem, o que tem; itens com os produtos citados, ou [] para tudo);
   "gastos" (quanto gastei; "periodo": "hoje", "semana" ou "mes"; "categoria" se citada);
   "caixa" (como foi o caixa, quanto vendi, fechamento, relatório; "periodo": hoje, ontem, semana, mes,
-  mes_passado, "dia:3", "mes:10", "data:2026-11-03"; "formato": resumo, itens (o que vendi), por_dia (o mês
+  mes_passado, "dia:3", "mes:10", "data:2026-11-03"; "formato": resumo, itens ("o que vendi", "o que saiu",
+  "o que mais vendeu"), por_dia (o mês
   dia a dia), grafico, planilha (arquivo); null se não pediu);
   "fiado" (quem me deve, quanto o João deve; "cliente" se citado; "dias" em "há mais de 30 dias").
 - desfazer: "desfazer", "apaga o último", "cancela a última anotação".
