@@ -269,7 +269,7 @@ class WhatsAppComAnexos(FakeWhatsApp):
         return "wamid.doc"
 
 
-def test_relatorio_vai_em_texto_e_a_voz_fala_so_o_resumo():
+def test_fechamento_vai_so_em_texto_como_lista():
     from app.servicos.relatorios import ServicoRelatorios
 
     wa, lojas, mensagens = WhatsAppComAnexos(), {}, FakeMensagens()
@@ -280,12 +280,12 @@ def test_relatorio_vai_em_texto_e_a_voz_fala_so_o_resumo():
                  controle=Controle(MemoriaRedis()),
                  relatorios=lambda c: ServicoRelatorios(lojas[c.telefone]))
     p.processar(audio("m1"))
+    audios = len(wa.audios)
     p.processar(audio("m2"))
     _, texto = wa.textos[-1]
-    _, voz = wa.audios[-1]
-    assert texto.startswith("Caixa: hoje") and "```" in texto and "R$ 300,00" in texto
-    assert b"```" not in voz.conteudo and voz.conteudo.decode().endswith("Mandei a tabela por escrito.")
-    assert mensagens.de("m2")["intencao_json"]["relatorios"] == [{"periodo": "hoje", "formato": "resumo"}]
+    assert texto.startswith("Fechamento do caixa: hoje") and "• arroz — 300 kg — R$ 300,00" in texto
+    assert len(wa.audios) == audios  # o fechamento vai só por escrito
+    assert mensagens.de("m2")["intencao_json"]["relatorios"] == [{"periodo": "hoje", "formato": "lista"}]
 
     p.processar(audio("m3"))
     assert wa.anexos == [("document", next(n for t, n in wa.anexos))]
@@ -320,3 +320,31 @@ def test_preferencias_e_aviso():
     p.processar(audio("m1"))
     assert gravadas == [{"fechamento_diario_horario": "20:00"}]
     assert wa.textos[-1][1].endswith("Pode chegar até 15 minutos depois.\n\nAviso do fechamento.")
+
+
+def test_atalho_e_modo_teste_nao_chamam_a_ia():
+    wa, mensagens = FakeWhatsApp(), FakeMensagens()
+    interp = FakeInterpreter(COMPRA)
+
+    def criar(modo_teste):
+        return Pipeline(whatsapp=wa, stt=FakeSTT(), interpreter=interp, tts=FakeTTS(), tenants=FakeTenants(),
+                        loja=lambda c: LojaMemoria(), mensagens=mensagens, controle=Controle(MemoriaRedis()),
+                        modo_teste=modo_teste)
+
+    texto = lambda i, t: MensagemRecebida(telefone="5585999990001", msg_id=i, tipo="text", texto=t)  # noqa: E731
+    criar(False).processar(texto("t1", "fechamento do caixa"))
+    assert interp.contextos == [] and mensagens.de("t1")["intencao_json"]["origem"] == "atalho"
+
+    ops = '#ops {"fala": "vendi fiado pro João", "operacoes": [{"tipo": "conversa"}]}'
+    criar(True).processar(texto("t2", ops))
+    assert interp.contextos == [] and mensagens.de("t2")["transcricao"] == "vendi fiado pro João"
+
+    criar(False).processar(texto("t3", ops))  # em produção o prefixo não vale: vai para a IA
+    assert len(interp.contextos) == 1
+
+
+def test_modo_teste_nunca_em_producao(monkeypatch):
+    from app.config import Settings
+
+    assert Settings(interpretador_teste=True, vercel_env="preview").modo_teste
+    assert not Settings(interpretador_teste=True, vercel_env="production").modo_teste

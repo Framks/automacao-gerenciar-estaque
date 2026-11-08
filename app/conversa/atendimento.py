@@ -50,7 +50,7 @@ from app.domain.units import chave_produto, nome_produto, normalizar_unidade
 
 FORMATO = "%Y-%m-%d %H:%M:%S"
 SUFIXO_DESFAZER = " Se estiver errado, diga: desfazer."
-FORMATOS_RELATORIO = ("resumo", "itens", "por_dia", "grafico", "planilha")
+FORMATOS_RELATORIO = ("lista", "resumo", "itens", "por_dia", "grafico", "planilha")
 
 
 @dataclass
@@ -431,9 +431,9 @@ class Atendimento:
                 ex.plano.configuracoes["fechamento_mensal"] = ligado
                 ex.frases.append(replies.FECHAMENTO_MENSAL_LIGADO if ligado else replies.FECHAMENTO_MENSAL_DESLIGADO)
             elif chave in ("fechamento_formato", "formato"):
-                itens = str(valor).strip().lower() in ("itens", "detalhado", "completo", "tudo", "com tudo")
-                ex.plano.configuracoes["fechamento_formato"] = "itens" if itens else "resumo"
-                ex.frases.append(replies.FECHAMENTO_FORMATO_ITENS if itens else replies.FECHAMENTO_FORMATO_RESUMO)
+                resumo = str(valor).strip().lower() in ("resumo", "resumido", "so o total", "só o total")
+                ex.plano.configuracoes["fechamento_formato"] = "resumo" if resumo else "lista"
+                ex.frases.append(replies.FECHAMENTO_FORMATO_RESUMO if resumo else replies.FECHAMENTO_FORMATO_ITENS)
             elif chave == "pagamento_padrao":
                 forma = normalizar_pagamento(str(valor))
                 if forma is None:
@@ -649,7 +649,7 @@ class Atendimento:
             formato = op.formato if op.formato in FORMATOS_RELATORIO else None
             if formato is None:
                 hoje = datetime.strptime(ex.agora, FORMATO).date()
-                formato = "por_dia" if resolver_periodo(op.periodo, hoje).tipo == "mes" else "resumo"
+                formato = "por_dia" if resolver_periodo(op.periodo, hoje).tipo == "mes" else "lista"
             ex.pedidos.append(PedidoRelatorio(op.periodo, formato))
             return
         if op.assunto == "fiado":

@@ -81,6 +81,7 @@ class RespostaRelatorio:
     texto: str  # vai por escrito (pode ter tabela)
     fala: str = ""  # o que a voz fala (sem tabela); vazio = o próprio texto
     anexos: list[Anexo] = field(default_factory=list)
+    sem_audio: bool = True  # relatório vai só por escrito (economiza a voz e é mais fácil de conferir)
 
 
 @dataclass
@@ -133,4 +134,4 @@ class Parametros:
     # preferências que o próprio comerciante muda pela conversa (para responder "que horas é o fechamento?")
     fechamento_horario: str = ""
     fechamento_mensal: bool = False
-    fechamento_formato: str = "resumo"
+    fechamento_formato: str = "lista"

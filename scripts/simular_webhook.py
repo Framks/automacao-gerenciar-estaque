@@ -78,7 +78,9 @@ def main() -> int:
     grupo.add_argument("--texto")
     grupo.add_argument("--falar", help="texto que vira áudio (voz do bot) antes de enviar")
     grupo.add_argument("--audio", help="arquivo .ogg/.mp3")
-    grupo.add_argument("--botao", help='payload de botão de template, ex.: "caixa|hoje|itens"')
+    grupo.add_argument("--botao", help='payload de botão de template, ex.: "caixa|hoje|lista"')
+    grupo.add_argument("--ops", nargs=2, metavar=("FALA", "OPERACOES_JSON"),
+                       help="sem Groq (preview com INTERPRETADOR_TESTE=true): a fala e a lista de operações em JSON")
     args = ap.parse_args()
 
     s = get_settings()
@@ -88,6 +90,9 @@ def main() -> int:
 
     if args.texto:
         msg = {"type": "text", "text": {"body": args.texto}}
+    elif args.ops:
+        corpo_ops = json.dumps({"fala": args.ops[0], "operacoes": json.loads(args.ops[1])}, ensure_ascii=False)
+        msg = {"type": "text", "text": {"body": "#ops " + corpo_ops}}
     elif args.botao:
         msg = {"type": "button", "button": {"text": "Ver detalhes", "payload": args.botao}}
     else:

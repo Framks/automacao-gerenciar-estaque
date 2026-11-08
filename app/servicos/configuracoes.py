@@ -120,7 +120,8 @@ DEFINICOES: dict[str, Definicao] = {
     "fuso_horario": Definicao("fuso", "America/Fortaleza", "Fuso do comerciante (dias do relatório e fechamento)"),
     "fechamento_diario_horario": Definicao("horario", "", "Horário do fechamento do dia (vazio = desligado)"),
     "fechamento_mensal": Definicao("bool", False, "Mandar o fechamento do mês anterior no dia 1"),
-    "fechamento_formato": Definicao("enum", "resumo", "Formato do fechamento do dia", opcoes=("resumo", "itens")),
+    "fechamento_formato": Definicao("enum", "lista", "Formato do fechamento do dia: lista (nome, quantidade e valor) "
+                                                     "ou resumo (só os totais)", opcoes=("lista", "resumo", "itens")),
     "fechamento_dia_vazio": Definicao("bool", True, "Mandar o fechamento mesmo sem movimento no dia"),
     "fechamento_mensal_grafico": Definicao("bool", True, "Mandar o gráfico junto do fechamento do mês"),
     "fechamento_template": Definicao("texto", "", "Template aprovado na Meta para o fechamento fora da janela "

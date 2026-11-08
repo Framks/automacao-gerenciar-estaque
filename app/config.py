@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # - processar na hora, sem fila: o QStash chamaria o worker da produção (PUBLIC_BASE_URL).
     redis_prefixo: str = ""
     processar_sem_fila: bool = False
+    # Testes sem gastar o Groq: mensagens de texto "#ops {json}" viram operações direto. Nunca vale em produção.
+    interpretador_teste: bool = False
+
+    @property
+    def modo_teste(self) -> bool:
+        return self.interpretador_teste and self.vercel_env != "production"
 
     # URL pública do deploy (ex.: https://meu-bot.vercel.app), usada para o QStash chamar o worker.
     # Se vazia, usa o domínio de produção que a própria Vercel informa (VERCEL_PROJECT_PRODUCTION_URL).

@@ -360,7 +360,7 @@ def config_atual(horario: str, mensal: bool, formato: str, pagamento_padrao: str
     partes.append("o do mês chega no dia 1" if mensal else "o do mês está desligado")
     frase = ", ".join(partes) + "."
     if horario:
-        frase += " Ele vem " + ("com tudo que você vendeu." if formato == "itens" else "resumido.")
+        frase += " Ele vem " + ("resumido." if formato == "resumo" else "com a lista do que entrou e saiu.")
     if pagamento_padrao and pagamento_padrao != "nao_informado":
         frase += f" Quando você não fala o pagamento, eu anoto {NOME.get(pagamento_padrao, pagamento_padrao)}."
     return frase + " Para mudar, diga por exemplo: me manda o fechamento todo dia às 8 da noite."
@@ -369,7 +369,7 @@ def config_atual(horario: str, mensal: bool, formato: str, pagamento_padrao: str
 FECHAMENTO_DESLIGADO = "Pronto, não vou mais mandar o fechamento do dia."
 FECHAMENTO_MENSAL_LIGADO = "Combinado: no dia 1 de cada mês eu te mando o fechamento do mês anterior."
 FECHAMENTO_MENSAL_DESLIGADO = "Pronto, não vou mais mandar o fechamento do mês."
-FECHAMENTO_FORMATO_ITENS = "Certo: o fechamento vai vir com tudo que você vendeu."
+FECHAMENTO_FORMATO_ITENS = "Certo: o fechamento vai vir com a lista do que entrou e saiu."
 FECHAMENTO_FORMATO_RESUMO = "Certo: o fechamento vai vir resumido."
 HORARIO_NAO_ENTENDI = "Não entendi o horário. Diga, por exemplo: às 8 da noite, ou às 19 e 30."
 CONFIG_NAO_PERMITIDA = "Isso eu não consigo mudar por aqui. Fale com o suporte."

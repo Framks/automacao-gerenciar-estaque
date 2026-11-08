@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
+from app.conversa.atalhos import atalho
 from app.conversa.atendimento import Atendimento
 from app.conversa.contexto import LimitesContexto, MensagemHistorico, montar
 from app.conversa.loja import Loja
@@ -51,6 +52,7 @@ class Resposta:
     texto: str
     fala: str = ""
     anexos: list[Anexo] = field(default_factory=list)
+    sem_audio: bool = False
 
 
 PREFIXO_BOTAO_CAIXA = "caixa|"  # payload do botão "Ver detalhes" do fechamento: caixa|<periodo>|<formato>
@@ -63,6 +65,27 @@ def operacao_do_botao(payload: str | None) -> RespostaLLM | None:
     _, periodo, formato = (payload.split("|") + ["", ""])[:3]
     return RespostaLLM(operacoes=[Operacao(tipo=TipoOperacao.CONSULTA, assunto="caixa", periodo=periodo or None,
                                            formato=formato or None)])
+
+
+PREFIXO_TESTE = "#ops "
+
+
+@dataclass
+class OperacoesDeTeste:
+    fala: str
+    resposta: RespostaLLM
+
+
+def operacoes_de_teste(texto: str, ligado: bool) -> OperacoesDeTeste | None:
+    """Só no preview (INTERPRETADOR_TESTE): '#ops {"fala": "...", "operacoes": [...]}' entra sem chamar o Groq,
+    para testar o fluxo inteiro (banco, pendências, relatórios, envio) sem gastar tokens."""
+    if not ligado or not texto.startswith(PREFIXO_TESTE):
+        return None
+    import json
+
+    dados = json.loads(texto[len(PREFIXO_TESTE):])
+    return OperacoesDeTeste(str(dados.get("fala", "")),
+                            RespostaLLM.model_validate({"operacoes": dados.get("operacoes", [])}))
 
 
 def _erro_curto(e: BaseException) -> str:
@@ -88,6 +111,7 @@ class Pipeline:
         relatorios: Callable[[Comerciante], Relatorios] | None = None,
         configurar: Callable[[Comerciante, dict[str, Any]], None] | None = None,
         aviso: Callable[[Comerciante], str] | None = None,
+        modo_teste: bool = False,
     ):
         self._wa = whatsapp
         self._stt = stt
@@ -105,6 +129,7 @@ class Pipeline:
         self._relatorios = relatorios
         self._configurar = configurar
         self._aviso = aviso
+        self._modo_teste = modo_teste
 
     def processar(self, msg: MensagemRecebida) -> None:
         """Processa uma mensagem. Lança ServicoIndisponivel quando vale a pena a fila tentar de novo."""
@@ -145,7 +170,8 @@ class Pipeline:
             if novo:
                 resposta.texto = f"{replies.boas_vindas(comerciante.nome)} {resposta.texto}"
                 resposta.fala = f"{replies.boas_vindas(comerciante.nome)} {resposta.fala}"
-            self._responder(comerciante, mid, resposta.texto, cron, resposta.fala, resposta.anexos)
+            self._responder(comerciante, mid, resposta.texto, cron, resposta.fala, resposta.anexos,
+                            sem_audio=resposta.sem_audio)
             self._anotar(mid, tempos_json=cron.tempos)
             log.info("processado tel=%s tempos=%s total=%.2fs", mascarar(msg.telefone), cron.tempos, cron.total)
 
@@ -167,8 +193,17 @@ class Pipeline:
             historico = self._mensagens.historico(comerciante.id, desde, limites.max_mensagens)
             contexto = montar(texto, estado, historico, agora, limites)
 
+        origem = "botao"
         entendido = operacao_do_botao(msg.payload)
         if entendido is None:
+            origem, entendido = "atalho", atalho(texto)  # pedidos óbvios não gastam tokens do Groq
+        if entendido is None:
+            origem, entendido = "teste", operacoes_de_teste(texto, self._modo_teste)
+            if entendido is not None:
+                texto = entendido.fala
+                entendido = entendido.resposta
+        if entendido is None:
+            origem = "ia"
             with cron.etapa("interpretacao"):
                 entendido = self._interpreter.interpretar(texto, contexto)
 
@@ -183,7 +218,7 @@ class Pipeline:
         # marcado logo depois do commit: se o envio falhar e a fila repetir, não grava duas vezes
         self._controle.marcar_processada(msg.msg_id)
         self._anotar(mid, status="processada", transcricao=texto, tempos_json=cron.tempos, intencao_json={
-            "prompt": PROMPT_VERSAO, "operacoes": entendido.model_dump(mode="json")["operacoes"],
+            "prompt": PROMPT_VERSAO, "origem": origem, "operacoes": entendido.model_dump(mode="json")["operacoes"],
             "resultado": saida.resumo, "pergunta": saida.pergunta,
             "relatorios": [{"periodo": p.periodo, "formato": p.formato} for p in saida.pedidos],
         })
@@ -191,6 +226,7 @@ class Pipeline:
         textos = [saida.texto] if saida.texto else []
         falas = list(textos)
         anexos: list[Anexo] = []
+        sem_audio = False
         if saida.pedidos and self._relatorios is not None:
             with cron.etapa("relatorio"):
                 servico = self._relatorios(comerciante)
@@ -200,6 +236,7 @@ class Pipeline:
                     textos.append(r.texto)
                     falas.append(r.fala or r.texto)
                     anexos += r.anexos
+                    sem_audio = sem_audio or r.sem_audio
         if self._aviso is not None:
             try:
                 aviso = self._aviso(comerciante)
@@ -210,12 +247,12 @@ class Pipeline:
                 textos.append(aviso)
                 falas.append(aviso)
         texto_final = "\n\n".join(textos) or ("Não entendi. " + replies.AJUDA)
-        return Resposta(texto_final, " ".join(falas) or texto_final, anexos)
+        return Resposta(texto_final, " ".join(falas) or texto_final, anexos, sem_audio)
 
     def _responder(self, comerciante: Comerciante, mid: int, texto: str, cron: Cronometro, fala: str = "",
-                   anexos: list[Anexo] | None = None) -> None:
+                   anexos: list[Anexo] | None = None, sem_audio: bool = False) -> None:
         telefone = comerciante.telefone
-        if self._resposta_em_audio(comerciante):
+        if self._resposta_em_audio(comerciante) and not sem_audio:
             try:
                 tts = self._tts_de(comerciante) if self._tts_de else self._tts
                 with cron.etapa("tts"):

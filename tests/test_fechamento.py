@@ -142,7 +142,7 @@ def test_fora_da_janela_com_template(fabrica_pg):
     ((tipo, _, (nome, idioma, params, payload)),) = wa.enviados
     assert (tipo, nome, idioma) == ("template", "fechamento_caixa", "pt_BR")
     assert params == ["hoje (29/10)", "R$ 14,00", "R$ 100,00", "-R$ 86,00"]
-    assert payload == "caixa|data:2026-10-29|resumo"
+    assert payload == "caixa|data:2026-10-29|lista"
     with transacao(fabrica_pg) as s:
         assert s.scalar(select(FechamentoDB.canal)) == "template"
 

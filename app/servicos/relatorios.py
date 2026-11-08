@@ -65,7 +65,7 @@ class ServicoRelatorios:
         return rel.calcular(p, *self._carregar(p))
 
     def montar(self, pedido: PedidoRelatorio, hoje: date) -> RespostaRelatorio:
-        formato = pedido.formato or "resumo"
+        formato = pedido.formato or "lista"
         periodo_falado = pedido.periodo or ("mes" if formato in ("grafico", "planilha", "por_dia") else None)
         p = resolver_periodo(periodo_falado, hoje)
 

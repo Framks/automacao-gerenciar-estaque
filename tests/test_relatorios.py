@@ -199,5 +199,15 @@ def test_configurar_so_aceita_as_chaves_do_comerciante():
 def test_consultar_configuracao():
     c = Conversa(Parametros(fechamento_horario="20:00", pagamento_padrao="dinheiro"))
     r = c.fala("que horas é o fechamento?", {"tipo": "configurar", "campos": {}})
-    assert r.startswith("O fechamento do dia chega às 20h, o do mês está desligado. Ele vem resumido.")
+    assert r.startswith("O fechamento do dia chega às 20h, o do mês está desligado. Ele vem com a lista do que entrou e saiu.")
     assert "eu anoto dinheiro" in r
+
+
+def test_fechamento_em_lista():
+    r = calcular(livro(), "dia:2")
+    assert rel.texto_lista(r) == (
+        "Fechamento do caixa: 02/11\n\n"
+        "Vendido:\n• arroz — 3 kg — R$ 23,00 (Pix, dinheiro)\nTotal vendido: R$ 23,00\n\n"
+        "Comprado:\n• arroz — 10 kg — R$ 50,00\n• feijão — 5 kg — sem valor\nTotal comprado: R$ 50,00\n\n"
+        "Saldo do caixa: -R$ 27,00\n\n"
+        "⚠ 1 compra sem valor")

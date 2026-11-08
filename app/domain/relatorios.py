@@ -20,13 +20,14 @@ from app.domain.fiado import desfeitos as fiado_desfeitos
 from app.domain.inventory import valores_vigentes
 from app.domain.models import Movimento, TipoMovimento
 from app.domain.pagamento import NAO_INFORMADO
+from app.domain.pagamento import NOME as NOME_MEIO
 from app.domain.periodos import Periodo
 from app.domain.replies import fmt_num, fmt_reais
 from app.domain.tabelas import TabelaLarga, bloco, cortar, fmt_inteiro, fmt_rs, fmt_valor, tabela
 
 ZERO = Decimal(0)
 MAX_ITENS = 15
-FORMATOS = ("resumo", "itens", "por_dia")
+FORMATOS = ("lista", "resumo", "itens", "por_dia")
 ABREVIA_FORMA = {"dinheiro": "din", "pix": "pix", "cartao": "cart", "fiado": "fiado", NAO_INFORMADO: "-"}
 
 
@@ -305,7 +306,43 @@ def texto_por_dia(r: RelatorioCaixa) -> str:
     return texto + ("\n" + "\n".join(extras) if extras else "")
 
 
+def _linha_lista(i: LinhaItem) -> str:
+    valor = fmt_rs(i.valor) if i.valor or not i.sem_valor else "sem valor"
+    if i.valor and i.sem_valor:
+        valor += f" (+{i.sem_valor} sem valor)"
+    meio = ""
+    if i.tipo == "venda" and i.formas and i.formas != [NAO_INFORMADO]:
+        meio = " (" + ", ".join(NOME_MEIO.get(f, f) for f in i.formas if f != NAO_INFORMADO) + ")"
+    return f"• {i.produto} — {fmt_num(i.quantidade)} {i.unidade} — {valor}{meio}"
+
+
+def texto_lista(r: RelatorioCaixa, titulo: str = "Fechamento do caixa") -> str:
+    """O fechamento: uma lista simples com nome, quantidade e valor de tudo que entrou e saiu no período."""
+    if r.vazio:
+        return f"{titulo}: {r.periodo.rotulo}. Não teve movimento anotado."
+    partes = [f"{titulo}: {r.periodo.rotulo}"]
+    for tipo, nome, total in (("venda", "Vendido", r.vendas), ("compra", "Comprado", r.compras)):
+        itens = [i for i in r.itens if i.tipo == tipo]
+        if itens:
+            partes.append(f"{nome}:\n" + "\n".join(_linha_lista(i) for i in itens) + f"\nTotal {nome.lower()}: {fmt_rs(total)}")
+    extras = []
+    if r.despesas:
+        extras.append(f"Despesas: {fmt_rs(r.despesas)}")
+    if r.retiradas:
+        extras.append(f"Retiradas: {fmt_rs(r.retiradas)}")
+    if r.recebido_fiado:
+        extras.append(f"Recebido de fiado: {fmt_rs(r.recebido_fiado)}")
+    extras.append(f"Saldo do caixa: {fmt_rs(r.saldo)}")
+    partes.append("\n".join(extras))
+    avisos = _avisos(r)
+    if avisos:
+        partes.append("\n".join(avisos))
+    return "\n\n".join(partes)
+
+
 def texto(r: RelatorioCaixa, formato: str = "resumo", titulo: str = "Caixa") -> str:
+    if formato == "lista":
+        return texto_lista(r)
     if formato == "itens":
         return texto_itens(r, "venda")
     if formato == "por_dia":

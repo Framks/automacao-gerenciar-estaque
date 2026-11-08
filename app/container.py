@@ -137,6 +137,7 @@ def pipeline() -> Pipeline:
         relatorios=lambda c: relatorios_de(c.id),
         configurar=lambda c, valores: configurar_pelo_comerciante(cfg, c.id, valores),
         aviso=lambda c: fechamento().aviso_pendente(c.id),
+        modo_teste=s.modo_teste,
     )
 
 

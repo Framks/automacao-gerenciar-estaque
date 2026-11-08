@@ -216,10 +216,11 @@ class Fechamento:
     def _texto(r: rel.RelatorioCaixa, tipo: str, formato: str) -> str:
         if tipo == "mensal":
             return "Fechamento do mês. " + rel.texto_por_dia(r)
-        texto = rel.texto_resumo(r, "Fechamento do caixa")
+        if formato == "resumo":
+            return rel.texto_resumo(r, "Fechamento do caixa")
         if formato == "itens" and not r.vazio:
-            texto += "\n\n" + rel.texto_itens(r, "venda")
-        return texto
+            return rel.texto_resumo(r, "Fechamento do caixa") + "\n\n" + rel.texto_itens(r, "venda")
+        return rel.texto_lista(r)
 
     def _mandar_grafico(self, cid: int, telefone: str, r: rel.RelatorioCaixa) -> None:
         from app.servicos.graficos import desenhar, legenda

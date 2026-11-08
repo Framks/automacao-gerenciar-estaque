@@ -90,6 +90,7 @@ def health():
         "groq_stt_model": s.groq_stt_model,
         "telefones_permitidos": len([t for t in s.telefones_permitidos.split(",") if t.strip()]),
         "config_versao": _versao_config(),
+        "modo_teste": s.modo_teste,
     }
 
 
