@@ -37,6 +37,7 @@ CATALOGO = [
     {"produto": "ovo", "unidade": "duzia", "quantidade": "5", "custo_medio": "12"},
     {"produto": "óleo de soja", "unidade": "un", "quantidade": "6", "custo_medio": "8"},
 ]
+CLIENTES = ["João", "Dona Maria", "Seu Zé", "João Pedro"]
 MOVIMENTOS = [{"id": "wamid.ARZ-0", "tipo": "entrada", "produto": "arroz", "quantidade": "10", "unidade": "kg",
                "valor_total": "50", "quando": "2026-10-29 09:50:00"}]
 
@@ -45,7 +46,8 @@ def contexto_do_caso(caso: dict) -> Contexto:
     ctx = caso.get("contexto", {})
     return Contexto(agora="2026-10-29 10:00:00", historico=ctx.get("historico", []),
                     pendencias=ctx.get("pendencias", []), produtos=ctx.get("produtos", CATALOGO),
-                    ultimos_movimentos=ctx.get("ultimos_movimentos", MOVIMENTOS))
+                    ultimos_movimentos=ctx.get("ultimos_movimentos", MOVIMENTOS),
+                    clientes_fiado=ctx.get("clientes_fiado", CLIENTES))
 
 
 def interpretar(g: GroqInterpreter, prompt: str, caso: dict):

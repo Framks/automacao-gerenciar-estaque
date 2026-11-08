@@ -56,7 +56,7 @@ def test_movimentos_com_formato_e_injection(dados):
     linhas = _linhas(juntar(exp.csv("movimentos", Filtro(comerciante_id=a))))
     assert linhas[0][:7] == ["data_hora", "tipo", "produto", "quantidade", "unidade", "valor_unitario", "valor_total"]
     assert linhas[1][:7] == ["29/10/2026 10:42", "entrada", "feijão", "10", "kg", "", "100,5"]  # fuso de Fortaleza
-    assert linhas[1][-1] == "'=HYPERLINK(\"http://x\")"
+    assert linhas[1][linhas[0].index("texto")] == "'=HYPERLINK(\"http://x\")"
     assert len(linhas) == 3  # cabeçalho + 2: nada do outro comerciante
 
 
@@ -90,6 +90,6 @@ def test_exige_comerciante_e_nome_valido(dados):
 def test_pacote_zip(dados):
     exp, a, _ = dados
     with zipfile.ZipFile(io.BytesIO(exp.pacote_zip(a))) as z:
-        assert sorted(z.namelist()) == ["caixa.csv", "estoque.csv", "mensagens.csv", "movimentos.csv", "pendencias.csv"]
+        assert sorted(z.namelist()) == ["caixa.csv", "clientes.csv", "estoque.csv", "fiado.csv", "mensagens.csv", "movimentos.csv", "pendencias.csv"]
         assert "feijão" in z.read("estoque.csv").decode("utf-8")
         assert "leite" not in z.read("estoque.csv").decode("utf-8")

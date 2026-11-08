@@ -142,3 +142,32 @@ def test_redis_com_prefixo_isola_ambientes():
     assert preview.primeira_vez("wamid.X")
     assert producao.primeira_vez("wamid.X")  # a produção não enxerga a chave do preview
     assert base.get("preview:wa:recebida:wamid.X") == "1"
+
+
+def test_extrai_botao_de_template_e_interativo():
+    from app.whatsapp.client import extrair_mensagens
+
+    payload = {"entry": [{"changes": [{"value": {"contacts": [{"wa_id": "558881061891", "profile": {"name": "F"}}],
+        "messages": [
+            {"from": "558881061891", "id": "w1", "type": "button",
+             "button": {"text": "Ver detalhes", "payload": "caixa|data:2026-11-08|resumo"}},
+            {"from": "558881061891", "id": "w2", "type": "interactive",
+             "interactive": {"type": "button_reply", "button_reply": {"id": "caixa|mes|por_dia", "title": "Mês"}}},
+        ]}}]}]}
+    a, b = extrair_mensagens(payload)
+    assert (a.tipo, a.texto, a.payload) == ("button", "Ver detalhes", "caixa|data:2026-11-08|resumo")
+    assert (b.tipo, b.payload) == ("button", "caixa|mes|por_dia")
+
+
+def test_erro_da_meta_guarda_o_codigo():
+    import httpx
+
+    from app.whatsapp.client import FORA_DA_JANELA, ErroWhatsApp, _checar
+
+    resposta = httpx.Response(400, json={"error": {"code": 131047, "message": "Re-engagement message"}})
+    try:
+        _checar(resposta, "enviar text")
+    except ErroWhatsApp as e:
+        assert e.codigo == FORA_DA_JANELA
+    else:
+        raise AssertionError("deveria lançar")

@@ -78,6 +78,7 @@ def main() -> int:
     grupo.add_argument("--texto")
     grupo.add_argument("--falar", help="texto que vira áudio (voz do bot) antes de enviar")
     grupo.add_argument("--audio", help="arquivo .ogg/.mp3")
+    grupo.add_argument("--botao", help='payload de botão de template, ex.: "caixa|hoje|itens"')
     args = ap.parse_args()
 
     s = get_settings()
@@ -87,6 +88,8 @@ def main() -> int:
 
     if args.texto:
         msg = {"type": "text", "text": {"body": args.texto}}
+    elif args.botao:
+        msg = {"type": "button", "button": {"text": "Ver detalhes", "payload": args.botao}}
     else:
         if args.falar:
             from app.speech.tts import EdgeTTS

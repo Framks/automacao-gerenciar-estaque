@@ -66,3 +66,39 @@
 {"id": "conversa-bom-dia", "fala": "bom dia, tudo bem?", "esperado": [{"tipo": "conversa"}]}
 {"id": "conversa-obrigado", "fala": "valeu, obrigado", "esperado": [{"tipo": "conversa"}]}
 {"id": "conversa-ajuda", "fala": "como eu uso isso?", "esperado": [{"tipo": "conversa"}]}
+{"id": "f6-pag-pix", "fala": "vendi 3 quilos de arroz por 18 reais no pix", "esperado": [{"tipo": "venda", "itens": [{"produto": "arroz", "quantidade": 3, "unidade": "kg", "valor_total": 18}], "forma_pagamento": "pix"}], "critico": true}
+{"id": "f6-pag-debito", "fala": "vendi duas dúzias de ovo por 24 reais no débito", "esperado": [{"tipo": "venda", "itens": [{"produto": "ovo", "quantidade": 2, "unidade": "duzia", "valor_total": 24}], "forma_pagamento": "cartao"}]}
+{"id": "f6-pag-dinheiro", "fala": "o cliente levou 1 quilo de café por 40 em dinheiro", "esperado": [{"tipo": "venda", "itens": [{"produto": "café", "quantidade": 1, "unidade": "kg", "valor_total": 40}], "forma_pagamento": "dinheiro"}]}
+{"id": "f6-pag-sem-meio", "fala": "vendi 2 quilos de feijão por 16 reais", "esperado": [{"tipo": "venda", "itens": [{"produto": "feijão", "quantidade": 2, "unidade": "kg", "valor_total": 16}], "forma_pagamento": null}], "critico": true}
+{"id": "f6-pag-compra-pix", "fala": "comprei 10 quilos de farinha por 50 reais e paguei no pix", "esperado": [{"tipo": "compra", "itens": [{"produto": "farinha", "quantidade": 10, "unidade": "kg", "valor_total": 50}], "forma_pagamento": "pix"}]}
+{"id": "f6-pag-corrigir", "fala": "foi no cartão, não no pix", "esperado": [{"tipo": "corrigir", "campos": {"forma_pagamento": "cartao"}}]}
+{"id": "f6-fiado-com-nome", "fala": "vendi 3 quilos de arroz fiado pra dona Maria, 18 reais", "esperado": [{"tipo": "venda", "itens": [{"produto": "arroz", "quantidade": 3, "unidade": "kg", "valor_total": 18}], "forma_pagamento": "fiado", "cliente": "Maria"}], "critico": true}
+{"id": "f6-fiado-sem-nome", "fala": "vendi 1 quilo de café fiado por 40", "esperado": [{"tipo": "venda", "itens": [{"produto": "café", "quantidade": 1, "unidade": "kg", "valor_total": 40}], "forma_pagamento": "fiado", "cliente": null}]}
+{"id": "f6-fiado-caderneta", "fala": "o seu Zé levou 2 litros de leite na caderneta, 12 reais", "esperado": [{"tipo": "venda", "itens": [{"produto": "leite", "quantidade": 2, "unidade": "l", "valor_total": 12}], "forma_pagamento": "fiado", "cliente": "Zé"}]}
+{"id": "f6-fiado-resposta-nome", "fala": "pro João", "esperado": [{"tipo": "completar", "pendencia_id": 21, "campos": {"cliente": "João"}}], "contexto": {"pendencias": [{"id": 21, "tipo": "completar", "resumo": "a venda fiado de arroz", "faltando": ["cliente"], "pergunta": "Fiado pra quem?"}], "historico": [{"de": "comerciante", "texto": "vendi 2 quilos de arroz fiado por 12"}, {"de": "bot", "texto": "Fiado pra quem?"}]}, "critico": true}
+{"id": "f6-receb-parcial", "fala": "o João me pagou 20 reais", "esperado": [{"tipo": "recebimento", "cliente": "João", "valor": 20}], "critico": true}
+{"id": "f6-receb-pix", "fala": "a Maria pagou 15 no pix do que ela devia", "esperado": [{"tipo": "recebimento", "cliente": "Maria", "valor": 15, "forma_pagamento": "pix"}]}
+{"id": "f6-receb-tudo", "fala": "o seu Zé acertou tudo que devia", "esperado": [{"tipo": "recebimento", "cliente": "Zé", "tudo": true}], "critico": true}
+{"id": "f6-receb-vs-despesa", "fala": "paguei 200 reais pro fornecedor de verdura", "esperado": [{"tipo": "despesa", "valor": 200}], "critico": true}
+{"id": "f6-perdoar", "fala": "esquece a dívida do seu Zé, ele não vai pagar", "esperado": [{"tipo": "perdoar", "cliente": "Zé"}]}
+{"id": "f6-consulta-quem-deve", "fala": "quem tá me devendo?", "esperado": [{"tipo": "consulta", "assunto": "fiado", "cliente": null}], "critico": true}
+{"id": "f6-consulta-quanto-deve", "fala": "quanto a Maria me deve?", "esperado": [{"tipo": "consulta", "assunto": "fiado", "cliente": "Maria"}]}
+{"id": "f6-consulta-30-dias", "fala": "quem tá devendo faz mais de 30 dias?", "esperado": [{"tipo": "consulta", "assunto": "fiado", "dias": 30}]}
+{"id": "f6-cliente-novo", "fala": "não, é outro, é cliente novo", "esperado": [{"tipo": "completar", "campos": {"cliente_novo": true}}], "contexto": {"pendencias": [{"id": 22, "tipo": "confirmacao", "resumo": "a venda fiado de arroz", "faltando": ["cliente"], "pergunta": "Você quis dizer João Pedro, que já está no fiado? Diga sim, ou diga: é cliente novo."}]}}
+{"id": "f6-fiado-mudar", "fala": "essa última foi fiado pro João", "esperado": [{"tipo": "corrigir", "campos": {"forma_pagamento": "fiado", "cliente": "João"}}]}
+{"id": "f6-caixa-hoje", "fala": "como foi o caixa hoje?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["hoje", null]}], "critico": true}
+{"id": "f6-caixa-vendi-hoje", "fala": "o que eu vendi hoje?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["hoje", null], "formato": "itens"}]}
+{"id": "f6-caixa-ontem", "fala": "me manda o relatório de ontem", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": "ontem"}]}
+{"id": "f6-caixa-mes", "fala": "como foram as vendas desse mês?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": "mes"}]}
+{"id": "f6-caixa-outubro", "fala": "quero o relatório de outubro", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["mes:10", "outubro"]}]}
+{"id": "f6-caixa-dia-3", "fala": "como foi o caixa do dia 3?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["dia:3", "dia:03"]}]}
+{"id": "f6-caixa-grafico", "fala": "manda o gráfico do mês", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["mes", null], "formato": "grafico"}]}
+{"id": "f6-caixa-planilha", "fala": "me manda a planilha de outubro", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": ["mes:10", "outubro"], "formato": "planilha"}]}
+{"id": "f6-caixa-vs-estoque", "fala": "o que tem no meu estoque?", "esperado": [{"tipo": "consulta", "assunto": "estoque"}], "critico": true}
+{"id": "f6-caixa-semana", "fala": "quanto eu vendi essa semana?", "esperado": [{"tipo": "consulta", "assunto": "caixa", "periodo": "semana"}]}
+{"id": "f6-config-8-noite", "fala": "me manda o fechamento do caixa todo dia às 8 da noite", "esperado": [{"tipo": "configurar", "campos": {"fechamento_horario": "8 da noite"}}], "critico": true}
+{"id": "f6-config-19h30", "fala": "muda o horário do fechamento pra 19 e 30", "esperado": [{"tipo": "configurar", "campos": {"fechamento_horario": "19:30"}}]}
+{"id": "f6-config-desligar", "fala": "para de mandar o fechamento", "esperado": [{"tipo": "configurar", "campos": {"fechamento_horario": "desligar"}}]}
+{"id": "f6-config-mensal", "fala": "quero receber também o fechamento do mês", "esperado": [{"tipo": "configurar", "campos": {"fechamento_mensal": true}}]}
+{"id": "f6-config-consulta", "fala": "que horas chega o fechamento?", "esperado": [{"tipo": "configurar"}]}
+{"id": "f6-config-resposta-noite", "fala": "da noite", "esperado": [{"tipo": "completar", "pendencia_id": 23}], "contexto": {"pendencias": [{"id": 23, "tipo": "completar", "resumo": "o horário do fechamento", "faltando": ["horario"], "pergunta": "8 da manhã ou da noite?"}], "historico": [{"de": "comerciante", "texto": "manda o fechamento às 8"}, {"de": "bot", "texto": "8 da manhã ou da noite?"}]}}

@@ -10,6 +10,9 @@ from decimal import Decimal
 from app.domain.dinheiro import parse_valor
 from app.domain.financeiro import normalizar_categoria
 from app.domain.operacoes import RespostaLLM
+from app.domain.clientes import chave_cliente
+from app.domain.pagamento import normalizar_pagamento
+from app.domain.periodos import parse_horario
 from app.domain.units import chave_produto, normalizar_unidade
 
 TOLERANCIA = Decimal("0.01")
@@ -23,6 +26,12 @@ def _num_igual(esperado, obtido) -> bool:
         return abs(parse_valor(esperado) - parse_valor(obtido)) <= TOLERANCIA
     except (ValueError, ArithmeticError):
         return False
+
+
+def _aceita(esperado, obtido) -> bool:
+    """O esperado pode ser uma lista de alternativas aceitas (ex.: ["hoje", null])."""
+    opcoes = esperado if isinstance(esperado, list) else [esperado]
+    return any(obtido == o or (o is not None and str(o).lower() == str(obtido).lower()) for o in opcoes)
 
 
 def _diferencas_item(e: dict, o: dict, prefixo: str) -> list[str]:
@@ -65,12 +74,26 @@ def diferencas(esperado: list[dict], obtido: RespostaLLM) -> list[str]:
             if esperada != veio:
                 erros.append(f"{p}categoria: esperado {e['categoria']}, veio {o.get('categoria')}")
         for campo in ("assunto", "periodo"):
-            if campo in e and e[campo] != (o.get(campo) or ("estoque" if campo == "assunto" else "mes")):
+            if campo in e and not _aceita(e[campo], o.get(campo) or ("estoque" if campo == "assunto" else
+                                                                     ("mes" if e.get("assunto") == "gastos" else None))):
                 erros.append(f"{p}{campo}: esperado {e[campo]}, veio {o.get(campo)}")
+        for campo in ("formato", "forma_pagamento", "tudo", "dias"):
+            if campo in e and not _aceita(e[campo], o.get(campo)):
+                erros.append(f"{p}{campo}: esperado {e[campo]}, veio {o.get(campo)}")
+        if "cliente" in e:
+            esperado_c = chave_cliente(e["cliente"]) if e["cliente"] else ""
+            if esperado_c != (chave_cliente(o.get("cliente") or "")):
+                erros.append(f"{p}cliente: esperado {e['cliente']}, veio {o.get('cliente')}")
         for chave, valor in (e.get("campos") or {}).items():
             veio = (o.get("campos") or {}).get(chave)
             if chave == "categoria":
                 ok = normalizar_categoria(valor) == normalizar_categoria(veio)
+            elif chave == "cliente":
+                ok = chave_cliente(str(valor)) == chave_cliente(str(veio or ""))
+            elif chave == "forma_pagamento":
+                ok = normalizar_pagamento(str(valor)) == normalizar_pagamento(str(veio or ""))
+            elif chave == "fechamento_horario":
+                ok = parse_horario(str(valor)) == parse_horario(str(veio or ""))
             elif chave in NUMERICOS:
                 ok = _num_igual(valor, veio)
                 if not ok and chave in ("valor_total", "valor"):  # "valor" e "valor_total" são o mesmo dado
