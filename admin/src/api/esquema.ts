@@ -193,6 +193,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/comerciantes/{comerciante_id}/relatorios/caixa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Relatorio Caixa
+         * @description Vendas (por meio), compras, despesas, fiado, entrou/saiu/saldo, lucro bruto, por dia e por produto.
+         */
+        get: operations["relatorio_caixa_api_admin_v1_comerciantes__comerciante_id__relatorios_caixa_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/comerciantes/{comerciante_id}/clientes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Clientes */
+        get: operations["clientes_api_admin_v1_comerciantes__comerciante_id__clientes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/comerciantes/{comerciante_id}/clientes/{cliente_id}/extrato": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Extrato Cliente */
+        get: operations["extrato_cliente_api_admin_v1_comerciantes__comerciante_id__clientes__cliente_id__extrato_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/comerciantes/{comerciante_id}/fechamentos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fechamentos */
+        get: operations["fechamentos_api_admin_v1_comerciantes__comerciante_id__fechamentos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/pendencias": {
         parameters: {
             query?: never;
@@ -919,6 +990,149 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Pagina"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    relatorio_caixa_api_admin_v1_comerciantes__comerciante_id__relatorios_caixa_get: {
+        parameters: {
+            query?: {
+                periodo?: string;
+                de?: string | null;
+                ate?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                comerciante_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clientes_api_admin_v1_comerciantes__comerciante_id__clientes_get: {
+        parameters: {
+            query?: {
+                so_devedores?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                comerciante_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extrato_cliente_api_admin_v1_comerciantes__comerciante_id__clientes__cliente_id__extrato_get: {
+        parameters: {
+            query?: {
+                limite?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                comerciante_id: number;
+                cliente_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fechamentos_api_admin_v1_comerciantes__comerciante_id__fechamentos_get: {
+        parameters: {
+            query?: {
+                limite?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                comerciante_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

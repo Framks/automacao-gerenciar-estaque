@@ -234,3 +234,50 @@ def test_resumo_saude_auditoria_e_openapi(api):
     assert c.get("/api/admin/v1/auditoria", headers=h).json()["itens"][0]["acao"] == "login"
     esquema = c.get("/api/admin/v1/openapi.json").json()
     assert "/api/admin/v1/comerciantes" in esquema["paths"]
+
+
+# --- caixa (F6) -----------------------------------------------------------------------------------------
+
+def test_relatorio_caixa_clientes_extrato_e_isolamento(api):
+    from app.conversa.atendimento import Atendimento
+    from app.domain.operacoes import RespostaLLM
+    from app.storage.pg_conversa import PgLoja
+    from tests.test_pendencias import compra, venda
+
+    c, ids, fabrica, *_ = api
+    h = entrar(c)
+    loja = PgLoja(fabrica, ids["a"])
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    hoje = datetime.now(ZoneInfo("America/Fortaleza")).strftime("%Y-%m-%d")
+    for n, (texto, op) in enumerate([
+        ("comprei 10 kg de arroz por 50", compra("arroz", 10, valor_total=50)),
+        ("vendi 2 kg de arroz por 14 no pix", venda("arroz", 2, valor_total=14) | {"forma_pagamento": "pix"}),
+        ("vendi fiado pro João", venda("arroz", 1, valor_total=7) | {"forma_pagamento": "fiado", "cliente": "João"}),
+    ]):
+        agora = f"{hoje} 0{n}:00:00"
+        saida = Atendimento().processar(RespostaLLM.model_validate({"operacoes": [op]}), loja.carregar_estado(agora),
+                                        texto=texto, msg_id=f"w.{n}", agora=agora)
+        loja.gravar(saida.plano)
+
+    r = c.get(f"/api/admin/v1/comerciantes/{ids['a']}/relatorios/caixa?periodo=hoje", headers=h)
+    assert r.status_code == 200, r.text
+    rel = r.json()
+    assert (rel["vendas"], rel["compras"], rel["por_forma"]) == ("21.00", "50.00", {"pix": "14.00", "fiado": "7.00"})
+    assert rel["entrou"] == "14.00" and rel["lucro_bruto"] == "6.00"
+
+    assert c.get(f"/api/admin/v1/comerciantes/{ids['a']}/relatorios/caixa?de=2026-01-01&ate=2027-06-01",
+                 headers=h).status_code == 422
+
+    clientes = c.get(f"/api/admin/v1/comerciantes/{ids['a']}/clientes", headers=h).json()
+    assert clientes["total_devido"] == 7 and clientes["itens"][0]["nome"] == "João"
+    cid = clientes["itens"][0]["id"]
+    extrato = c.get(f"/api/admin/v1/comerciantes/{ids['a']}/clientes/{cid}/extrato", headers=h).json()
+    assert [l["tipo"] for l in extrato["lancamentos"]] == ["divida"]
+    assert c.get(f"/api/admin/v1/comerciantes/{ids['b']}/clientes/{cid}/extrato", headers=h).status_code == 404
+
+    movs = c.get(f"/api/admin/v1/comerciantes/{ids['a']}/movimentos?tipo=saida", headers=h).json()["itens"]
+    assert {m["forma_pagamento"] for m in movs} == {"pix", "fiado"}
+    assert c.get(f"/api/admin/v1/comerciantes/{ids['a']}/fechamentos", headers=h).json() == {"itens": []}
+    assert c.get(f"/api/admin/v1/exportacoes/fiado.csv?comerciante_id={ids['a']}", headers=h).status_code == 200

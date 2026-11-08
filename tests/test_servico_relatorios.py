@@ -89,3 +89,10 @@ def test_dados_do_grafico_batem_com_a_tabela():
     assert g["dias"] == list(range(1, 32))
     assert sum(g["vendas"]) == rel_.vendas and g["saldo_acumulado"][-1] == rel_.saldo
     assert g["subtitulo"] == "Vendas R$ 3.392,00 · Saídas R$ 3.250,00 · Saldo R$ 142,00"
+
+
+def test_planilha_nao_vira_formula():
+    conteudo = csv_ptbr([{"data": "01/11/2026", "hora": "10:00", "tipo": "despesa", "produto_ou_descricao": "=HYPERLINK(1)",
+                          "quantidade": None, "unidade": "", "valor": 5, "meio_pagamento": "pix", "cliente": "@zé"}])
+    linha = conteudo.decode("utf-8-sig").splitlines()[1]
+    assert ";'=HYPERLINK(1);" in linha and linha.endswith(";'@zé")

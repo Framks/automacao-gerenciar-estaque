@@ -13,6 +13,7 @@ function texto(v: unknown) {
 function converter(tipo: string, bruto: string): unknown {
   if (tipo === "int" || tipo === "float" || tipo === "decimal") return Number(bruto.replace(",", "."));
   if (tipo === "list") return bruto.split(",").map((s) => s.trim()).filter(Boolean);
+  if (tipo === "bool") return bruto === "true";
   return bruto;
 }
 
@@ -23,12 +24,15 @@ function CampoConfig({ d, comerciante, salvar, remover, podeEscrever }: { d: Def
   const id = `cfg-${d.chave}`;
   return (
     <div className="linha">
-      {d.tipo === "enum" ? (
+      {d.tipo === "enum" || d.tipo === "bool" ? (
         <select id={id} aria-label={d.chave} value={valor} onChange={(e) => setValor(e.target.value)} disabled={!podeEscrever}>
-          {d.opcoes.map((o) => <option key={o}>{o}</option>)}
+          {(d.tipo === "bool" ? ["true", "false"] : d.opcoes).map((o) => (
+            <option key={o} value={o}>{d.tipo === "bool" ? (o === "true" ? "sim" : "não") : o}</option>
+          ))}
         </select>
       ) : (
         <input id={id} aria-label={d.chave} value={valor} onChange={(e) => setValor(e.target.value)} disabled={!podeEscrever}
+               placeholder={d.tipo === "horario" ? "20:00 (vazio = desligado)" : undefined}
                inputMode={["int", "float", "decimal"].includes(d.tipo) ? "decimal" : undefined} />
       )}
       {podeEscrever && <button onClick={() => salvar(converter(d.tipo, valor))}>Salvar</button>}

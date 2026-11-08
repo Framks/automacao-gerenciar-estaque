@@ -15,6 +15,7 @@ from app.conversa.modelos import Anexo, PedidoRelatorio, RespostaRelatorio
 from app.domain import relatorios as rel
 from app.domain.pagamento import NOME as NOME_PAGAMENTO
 from app.domain.periodos import Periodo, resolver_periodo
+from app.servicos.exportacao import seguro
 
 MINIMO_DIAS_GRAFICO = 3
 
@@ -44,9 +45,9 @@ def csv_ptbr(linhas: list[dict]) -> bytes:
     escritor = csv.writer(saida, delimiter=";", lineterminator="\r\n")
     escritor.writerow(rel.COLUNAS_PLANILHA)
     for l in linhas:
-        escritor.writerow([l["data"], l["hora"], l["tipo"], l["produto_ou_descricao"], _num(l["quantidade"]),
-                           l["unidade"], _num(l["valor"]), NOME_PAGAMENTO.get(l["meio_pagamento"], l["meio_pagamento"]),
-                           l["cliente"]])
+        escritor.writerow([l["data"], l["hora"], seguro(l["tipo"]), seguro(l["produto_ou_descricao"]),
+                           _num(l["quantidade"]), seguro(l["unidade"]), _num(l["valor"]),
+                           NOME_PAGAMENTO.get(l["meio_pagamento"], l["meio_pagamento"]), seguro(l["cliente"])])
     return ("﻿" + saida.getvalue()).encode("utf-8")
 
 

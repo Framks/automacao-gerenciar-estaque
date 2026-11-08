@@ -97,3 +97,26 @@ test("401 renova o token uma vez e repete a chamada", async () => {
   expect(n).toBe(1);
   expect(chamadas.map((c) => c.metodo + " " + c.url)).toEqual(["GET /api/admin/v1/resumo", "POST /api/admin/v1/auth/refresh", "GET /api/admin/v1/resumo"]);
 });
+
+test("relatório do caixa mostra os totais por meio e os dias com movimento", async () => {
+  simularApi({
+    "GET /api/admin/v1/comerciantes/1": [200, { id: 1, telefone: "5588", nome: "Francisco", status: "ativo" }],
+    "GET /api/admin/v1/comerciantes/1/produtos": [200, []],
+    "GET /api/admin/v1/comerciantes/1/relatorios/caixa": [200, {
+      periodo: { inicio: "2026-11-01", fim: "2026-11-08", rotulo: "novembro (até 08/11)" },
+      vendas: "21.00", por_forma: { pix: "14.00", fiado: "7.00" }, compras: "50.00", despesas: "0.00", despesas_por_categoria: {},
+      retiradas: "0.00", recebido_fiado: "0.00", vendido_fiado: "7.00", entrou: "14.00", saiu: "50.00", saldo: "-36.00", lucro_bruto: "6.00",
+      avisos: { compras_sem_valor: 1, vendas_sem_valor: 0, vendas_sem_custo: 0 },
+      dias: [{ dia: "2026-11-02", vendas: "21.00", compras: "50.00", despesas: "0.00", retiradas: "0.00", vendido_fiado: "7.00", recebido_fiado: "0.00", entrou: "14.00", saiu: "50.00", saldo: "-36.00" },
+             { dia: "2026-11-03", vendas: "0.00", compras: "0.00", despesas: "0.00", retiradas: "0.00", vendido_fiado: "0.00", recebido_fiado: "0.00", entrou: "0.00", saiu: "0.00", saldo: "0.00" }],
+      itens: [{ produto: "arroz", tipo: "venda", unidade: "kg", quantidade: "3.000", valor: "21.00", sem_valor: 0, formas: ["pix", "fiado"] }],
+    }],
+  });
+  montar(<Routes><Route path="/comerciantes/:id" element={<Comerciante podeEscrever />} /></Routes>, "/comerciantes/1");
+  await userEvent.click(await screen.findByRole("tab", { name: "Relatório" }));
+  expect(await screen.findByText("novembro (até 08/11)")).toBeInTheDocument();
+  expect(screen.getByText("Pix, Fiado")).toBeInTheDocument();
+  expect(screen.getByText("1 compras sem valor")).toBeInTheDocument();
+  expect(screen.getByText("02/11")).toBeInTheDocument();
+  expect(screen.queryByText("03/11")).toBeNull();
+});

@@ -27,7 +27,10 @@ from app.admin.auth import (
 from app.db.modelos import (
     AdminDB,
     AuditoriaDB,
+    ClienteDB,
     ComercianteDB,
+    FechamentoDB,
+    FiadoLancamentoDB,
     LancamentoDB,
     MensagemDB,
     MovimentoDB,
@@ -338,6 +341,7 @@ def movimentos(comerciante_id: int, de: date | None = None, ate: date | None = N
         "id": m.id, "criado_em": m.criado_em, "tipo": m.tipo, "produto": m.produto, "quantidade": _num(m.quantidade),
         "unidade": m.unidade, "valor_unitario": _num(m.valor_unitario), "valor_total": _num(m.valor_total),
         "texto": m.texto, "autor": m.autor or "bot", "motivo": m.motivo, "referencia_id": m.referencia_id,
+        "forma_pagamento": m.forma_pagamento, "custo_unitario": _num(m.custo_unitario),
     })
 
 
@@ -358,7 +362,81 @@ def lancamentos(comerciante_id: int, de: date | None = None, ate: date | None = 
     return _pagina(linhas, limite, lambda l: {
         "id": l.id, "criado_em": l.criado_em, "tipo": l.tipo, "categoria": l.categoria, "descricao": l.descricao,
         "valor": _num(l.valor), "texto": l.texto, "referencia_id": l.referencia_id,
+        "forma_pagamento": l.forma_pagamento,
     })
+
+
+# --- caixa: relatório, fiado e fechamentos (F6) ----------------------------------------------------------
+
+MAX_DIAS_RELATORIO = 366
+
+
+@router.get("/comerciantes/{comerciante_id}/relatorios/caixa", tags=["caixa"])
+def relatorio_caixa(comerciante_id: int, periodo: str = "mes", de: date | None = None, ate: date | None = None,
+                    _: AdminToken = Depends(dep.admin_atual), s: Session = Depends(dep.sessao),
+                    f=Depends(dep.fabrica), cfg=Depends(dep.configuracoes)):
+    """Vendas (por meio), compras, despesas, fiado, entrou/saiu/saldo, lucro bruto, por dia e por produto."""
+    from zoneinfo import ZoneInfo
+
+    from app.domain.periodos import Periodo, resolver_periodo
+    from app.servicos.relatorios import ServicoRelatorios
+    from app.storage.pg_conversa import PgLoja
+
+    _comerciante(s, comerciante_id)
+    fuso = cfg.get("fuso_horario", comerciante_id)
+    hoje = datetime.now(ZoneInfo(fuso)).date()
+    if de or ate:
+        de, ate = de or ate, ate or hoje
+        if ate < de or (ate - de).days >= MAX_DIAS_RELATORIO:
+            raise HTTPException(422, f"período inválido (de <= ate, no máximo {MAX_DIAS_RELATORIO} dias)")
+        p = Periodo(de, ate, f"{de:%d/%m/%Y} a {ate:%d/%m/%Y}", "intervalo")
+    else:
+        p = resolver_periodo(periodo, hoje)
+    return ServicoRelatorios(PgLoja(f, comerciante_id, fuso), fuso).calcular(p).como_dict()
+
+
+def _cliente(c: ClienteDB) -> dict:
+    return {"id": c.id, "nome": c.nome, "saldo_devedor": _num(c.saldo_devedor), "divida_desde": c.divida_desde,
+            "telefone": c.telefone, "criado_em": c.criado_em, "atualizado_em": c.atualizado_em}
+
+
+@router.get("/comerciantes/{comerciante_id}/clientes", tags=["caixa"])
+def clientes(comerciante_id: int, so_devedores: bool = False, _: AdminToken = Depends(dep.admin_atual),
+             s: Session = Depends(dep.sessao)):
+    _comerciante(s, comerciante_id)
+    q = select(ClienteDB).where(ClienteDB.comerciante_id == comerciante_id)
+    if so_devedores:
+        q = q.where(ClienteDB.saldo_devedor > 0)
+    linhas = s.scalars(q.order_by(ClienteDB.saldo_devedor.desc(), ClienteDB.nome)).all()
+    total = sum((c.saldo_devedor for c in linhas if c.saldo_devedor > 0), Decimal(0))
+    return {"itens": [_cliente(c) for c in linhas], "total_devido": _num(total)}
+
+
+@router.get("/comerciantes/{comerciante_id}/clientes/{cliente_id}/extrato", tags=["caixa"])
+def extrato_cliente(comerciante_id: int, cliente_id: int, limite: int = 200,
+                    _: AdminToken = Depends(dep.admin_atual), s: Session = Depends(dep.sessao)):
+    c = s.scalar(select(ClienteDB).where(ClienteDB.id == cliente_id, ClienteDB.comerciante_id == comerciante_id))
+    if c is None:
+        raise HTTPException(404, "cliente não encontrado")
+    linhas = s.scalars(select(FiadoLancamentoDB).where(FiadoLancamentoDB.cliente_id == c.id)
+                       .order_by(FiadoLancamentoDB.criado_em.desc(), FiadoLancamentoDB.id.desc())
+                       .limit(min(max(limite, 1), 1000))).all()
+    return {"cliente": _cliente(c), "lancamentos": [{
+        "id": l.id, "criado_em": l.criado_em, "tipo": l.tipo, "valor": _num(l.valor),
+        "forma_pagamento": l.forma_pagamento, "movimento_id": l.movimento_id, "referencia_id": l.referencia_id,
+        "texto": l.texto} for l in linhas]}
+
+
+@router.get("/comerciantes/{comerciante_id}/fechamentos", tags=["caixa"])
+def fechamentos(comerciante_id: int, limite: int = 60, _: AdminToken = Depends(dep.admin_atual),
+                s: Session = Depends(dep.sessao)):
+    _comerciante(s, comerciante_id)
+    linhas = s.scalars(select(FechamentoDB).where(FechamentoDB.comerciante_id == comerciante_id)
+                       .order_by(FechamentoDB.referencia.desc(), FechamentoDB.id.desc())
+                       .limit(min(max(limite, 1), 500))).all()
+    return {"itens": [{"id": x.id, "tipo": x.tipo, "referencia": x.referencia, "status": x.status, "canal": x.canal,
+                       "tentativas": x.tentativas, "erro": x.erro, "criado_em": x.criado_em,
+                       "atualizado_em": x.atualizado_em} for x in linhas]}
 
 
 # --- pendências e mensagens -----------------------------------------------------------------------------

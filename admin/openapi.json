@@ -872,6 +872,314 @@
     }
    }
   },
+  "/api/admin/v1/comerciantes/{comerciante_id}/relatorios/caixa": {
+   "get": {
+    "tags": [
+     "caixa"
+    ],
+    "summary": "Relatorio Caixa",
+    "description": "Vendas (por meio), compras, despesas, fiado, entrou/saiu/saldo, lucro bruto, por dia e por produto.",
+    "operationId": "relatorio_caixa_api_admin_v1_comerciantes__comerciante_id__relatorios_caixa_get",
+    "parameters": [
+     {
+      "name": "comerciante_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Comerciante Id"
+      }
+     },
+     {
+      "name": "periodo",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "mes",
+       "title": "Periodo"
+      }
+     },
+     {
+      "name": "de",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "De"
+      }
+     },
+     {
+      "name": "ate",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Ate"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/v1/comerciantes/{comerciante_id}/clientes": {
+   "get": {
+    "tags": [
+     "caixa"
+    ],
+    "summary": "Clientes",
+    "operationId": "clientes_api_admin_v1_comerciantes__comerciante_id__clientes_get",
+    "parameters": [
+     {
+      "name": "comerciante_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Comerciante Id"
+      }
+     },
+     {
+      "name": "so_devedores",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "So Devedores"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/v1/comerciantes/{comerciante_id}/clientes/{cliente_id}/extrato": {
+   "get": {
+    "tags": [
+     "caixa"
+    ],
+    "summary": "Extrato Cliente",
+    "operationId": "extrato_cliente_api_admin_v1_comerciantes__comerciante_id__clientes__cliente_id__extrato_get",
+    "parameters": [
+     {
+      "name": "comerciante_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Comerciante Id"
+      }
+     },
+     {
+      "name": "cliente_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Cliente Id"
+      }
+     },
+     {
+      "name": "limite",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 200,
+       "title": "Limite"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/v1/comerciantes/{comerciante_id}/fechamentos": {
+   "get": {
+    "tags": [
+     "caixa"
+    ],
+    "summary": "Fechamentos",
+    "operationId": "fechamentos_api_admin_v1_comerciantes__comerciante_id__fechamentos_get",
+    "parameters": [
+     {
+      "name": "comerciante_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Comerciante Id"
+      }
+     },
+     {
+      "name": "limite",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 60,
+       "title": "Limite"
+      }
+     },
+     {
+      "name": "authorization",
+      "in": "header",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/admin/v1/pendencias": {
    "get": {
     "tags": [
