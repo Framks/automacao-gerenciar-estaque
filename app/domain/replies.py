@@ -41,7 +41,16 @@ def boas_vindas(nome: str | None) -> str:
     return f"{saudacao} Seu cadastro foi feito. É só me mandar um áudio dizendo o que comprou ou vendeu."
 
 
-def montar(resultado: Resultado) -> str:
+def montar(resultado: Resultado, extra: str = "") -> str:
+    """`extra`: frase sobre o pagamento/fiado, que entra antes do "Se estiver errado, diga: desfazer"."""
+    texto = _montar(resultado)
+    if extra and resultado.ok and texto.startswith("Anotado!"):
+        sufixo = " Se estiver errado, diga: desfazer."
+        texto = texto.removesuffix(sufixo) + " " + extra + sufixo
+    return texto
+
+
+def _montar(resultado: Resultado) -> str:
     if resultado.problemas:
         return "Não anotei nada. " + " ".join(resultado.problemas)
 
@@ -196,3 +205,180 @@ CONVERSA = "Oi! Estou aqui para anotar seu estoque e seus gastos. " + AJUDA
 CORRIGIR_PRODUTO = "Para trocar o produto, diga: desfazer. E depois fale a anotação de novo."
 NAO_ACHEI_ANOTACAO = "Não achei a anotação para corrigir."
 DESPESAS_DESLIGADAS = "Ainda não estou anotando gastos. " + AJUDA
+
+
+# --- meio de pagamento e fiado (F6) ----------------------------------------------------------------------
+
+def _falada(forma: str) -> str:
+    from app.domain.pagamento import FALADA
+
+    return FALADA.get(forma, forma)
+
+
+def frase_pagamento(tipo: str, forma: str) -> str:
+    if forma not in ("dinheiro", "pix", "cartao"):
+        return ""
+    return f"{'Recebido' if tipo == 'venda' else 'Pago'} {_falada(forma)}."
+
+
+def pergunta_pagamento(formas) -> str:
+    from app.domain.pagamento import lista_falada
+
+    return f"Foi em {lista_falada(formas)}?"
+
+
+def forma_alterada(forma: str) -> str:
+    from app.domain.pagamento import NOME
+
+    return f"Certo! Mudei o pagamento para {NOME.get(forma, forma)}."
+
+
+def ja_estava(forma: str) -> str:
+    from app.domain.pagamento import NOME
+
+    return f"Já estava anotado como {NOME.get(forma, forma)}."
+
+
+def fiado_anotado(nome: str, saldo: Decimal) -> str:
+    return f"Fiado para {nome}, que agora deve {fmt_reais(saldo)}."
+
+
+def fiado_estornado(nome: str, saldo: Decimal) -> str:
+    if saldo > 0:
+        return f"Tirei do fiado de {nome}, que agora deve {fmt_reais(saldo)}."
+    return f"Tirei do fiado de {nome}, que não deve mais nada."
+
+
+def fiado_ajustado(nome: str, saldo: Decimal) -> str:
+    return f"A conta de {nome} no fiado agora é {fmt_reais(saldo)}."
+
+
+def pergunta_valor_fiado(produto: str) -> str:
+    return f"Quanto ficou a venda fiado de {produto}?"
+
+
+def pergunta_cliente_parecido(nome: str, sugestoes: list[str]) -> str:
+    if len(sugestoes) == 1:
+        return f"Você quis dizer {sugestoes[0]}, que já está no fiado? Diga sim, ou diga: é cliente novo."
+    return f"É {_juntar(sugestoes).replace(' e ', ' ou ')}? Fale o nome certo, ou diga: é cliente novo."
+
+
+def pergunta_qual_cliente(sugestoes: list[str]) -> str:
+    return f"Foi {_juntar(sugestoes).replace(' e ', ' ou ')}?"
+
+
+def pagamento_fiado(nome: str, valor: Decimal, forma: str, saldo: Decimal) -> str:
+    meio = f" {_falada(forma)}" if forma in ("dinheiro", "pix", "cartao") else ""
+    frase = f"Anotei: {nome} pagou {fmt_reais(valor)}{meio}."
+    if saldo > 0:
+        return frase + f" Ainda deve {fmt_reais(saldo)}."
+    return frase + " Agora não deve mais nada."
+
+
+def pergunta_quanto_pagou(nome: str) -> str:
+    return f"Quanto {nome} pagou?"
+
+
+def confirmar_quitacao(nome: str, saldo: Decimal) -> str:
+    return (f"{nome} deve só {fmt_reais(saldo)}. Anoto o pagamento de {fmt_reais(saldo)}, que quita tudo? "
+            "Diga sim ou não.")
+
+
+def nao_deve(nome: str) -> str:
+    return f"{nome} não está devendo nada."
+
+
+def cliente_nao_achado(nome: str, sugestoes: list[str]) -> str:
+    frase = f"Não achei {nome} no fiado."
+    if sugestoes:
+        frase += f" Seria {_juntar(sugestoes).replace(' e ', ' ou ')}?"
+    return frase
+
+
+def confirmar_perdao(nome: str, saldo: Decimal) -> str:
+    return f"Esquecer a dívida de {fmt_reais(saldo)} de {nome}? Diga sim ou não."
+
+
+def perdoado(nome: str, valor: Decimal) -> str:
+    return f"Pronto, esqueci a dívida de {fmt_reais(valor)} de {nome}."
+
+
+def saldo_cliente(nome: str, saldo: Decimal, desde: str, ultimas: list[tuple[str, Decimal]]) -> str:
+    frase = f"{nome} deve {fmt_reais(saldo)}"
+    if desde:
+        frase += f", desde o dia {desde[8:10]}/{desde[5:7]}"
+    frase += "."
+    if ultimas:
+        frase += " Últimas compras fiado: " + _juntar([f"dia {d[8:10]}/{d[5:7]}, {fmt_reais(v)}"
+                                                       for d, v in ultimas]) + "."
+    return frase
+
+
+def devedores(lista: list[tuple[str, Decimal]], total: Decimal, dias: int | None = None) -> str:
+    ha = f" há mais de {dias} dias" if dias else ""
+    if not lista:
+        return f"Ninguém está devendo{ha}."
+    partes = [f"{nome}, {fmt_reais(v)}" for nome, v in lista[:MAX_ITENS_CONSULTA]]
+    frase = f"Estão devendo{ha}: " + "; ".join(partes)
+    resto = len(lista) - MAX_ITENS_CONSULTA
+    if resto > 0:
+        frase += f"; e mais {resto} clientes"
+    return frase + f". Total: {fmt_reais(total)}."
+
+
+def pagamento_desfeito(nome: str, valor: Decimal, saldo: Decimal, tipo: str = "pagamento") -> str:
+    o_que = "o pagamento" if tipo == "pagamento" else "o perdão da dívida"
+    return f"Pronto, desfiz {o_que} de {fmt_reais(valor)} de {nome}. Agora deve {fmt_reais(saldo)}."
+
+
+PERGUNTA_CLIENTE_FIADO = "Fiado pra quem?"
+PERGUNTA_QUEM_PAGOU = "Quem pagou?"
+FIADO_DESLIGADO = "O fiado está desligado para você. Fale com o suporte para ligar."
+FIADO_PRECISA_VALOR = "Para pôr no fiado, preciso do valor da venda. Diga, por exemplo: a venda foi 20 reais."
+NAO_ENTENDI_PAGAMENTO = "Não entendi como foi pago."
+
+
+# --- preferências do comerciante (fechamento do caixa) ---------------------------------------------------
+
+def fechamento_ligado(hhmm: str) -> str:
+    from app.domain.periodos import falar_horario
+
+    return (f"Combinado: todo dia às {falar_horario(hhmm)} eu te mando o fechamento do caixa. "
+            "Pode chegar até 15 minutos depois.")
+
+
+def pergunta_manha_noite(hora: int) -> str:
+    return f"{hora} da manhã ou da noite?"
+
+
+def config_atual(horario: str, mensal: bool, formato: str, pagamento_padrao: str) -> str:
+    from app.domain.pagamento import NOME
+    from app.domain.periodos import falar_horario
+
+    partes = [f"O fechamento do dia chega às {falar_horario(horario)}" if horario
+              else "O fechamento do dia está desligado"]
+    partes.append("o do mês chega no dia 1" if mensal else "o do mês está desligado")
+    frase = ", ".join(partes) + "."
+    if horario:
+        frase += " Ele vem " + ("com tudo que você vendeu." if formato == "itens" else "resumido.")
+    if pagamento_padrao and pagamento_padrao != "nao_informado":
+        frase += f" Quando você não fala o pagamento, eu anoto {NOME.get(pagamento_padrao, pagamento_padrao)}."
+    return frase + " Para mudar, diga por exemplo: me manda o fechamento todo dia às 8 da noite."
+
+
+FECHAMENTO_DESLIGADO = "Pronto, não vou mais mandar o fechamento do dia."
+FECHAMENTO_MENSAL_LIGADO = "Combinado: no dia 1 de cada mês eu te mando o fechamento do mês anterior."
+FECHAMENTO_MENSAL_DESLIGADO = "Pronto, não vou mais mandar o fechamento do mês."
+FECHAMENTO_FORMATO_ITENS = "Certo: o fechamento vai vir com tudo que você vendeu."
+FECHAMENTO_FORMATO_RESUMO = "Certo: o fechamento vai vir resumido."
+HORARIO_NAO_ENTENDI = "Não entendi o horário. Diga, por exemplo: às 8 da noite, ou às 19 e 30."
+CONFIG_NAO_PERMITIDA = "Isso eu não consigo mudar por aqui. Fale com o suporte."
+PAGAMENTO_PADRAO_FIADO = "O fiado precisa do nome do cliente, então não dá para ser o padrão."
+
+
+def pagamento_padrao_definido(forma: str) -> str:
+    from app.domain.pagamento import NOME
+
+    if forma == "nao_informado":
+        return "Certo: quando você não falar o pagamento, fica sem meio anotado."
+    return f"Certo: quando você não falar o pagamento, eu anoto {NOME.get(forma, forma)}."

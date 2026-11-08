@@ -37,6 +37,7 @@ class Lancamento:
     texto: str = ""
     wa_msg_id: str = ""
     referencia: str = ""  # em ajuste (desfazer): id do lançamento desfeito
+    forma_pagamento: str = ""
 
 
 @dataclass

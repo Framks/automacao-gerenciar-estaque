@@ -8,6 +8,7 @@ from app.domain.models import Comerciante
 from app.domain.operacoes import RespostaLLM
 from app.errors import ServicoIndisponivel
 from app.fila.controle import Controle, MemoriaRedis
+from app.llm.interpreter import PROMPT_VERSAO
 from app.pipeline import ERRO_GENERICO, Pipeline
 from app.speech.tts import AudioGerado
 from app.whatsapp.client import MensagemRecebida
@@ -142,7 +143,7 @@ def test_mensagem_registrada_com_status_intencao_tempos_e_saidas(ambiente):
     criar().processar(audio())
     linha = mensagens.de("m1")
     assert linha["status"] == "processada" and linha["transcricao"].startswith("comprei 300 kg")
-    assert linha["intencao_json"]["prompt"] == "v2"
+    assert linha["intencao_json"]["prompt"] == PROMPT_VERSAO
     assert linha["intencao_json"]["operacoes"][0]["tipo"] == "compra"
     assert {"cadastro", "download_midia", "transcricao", "contexto", "interpretacao", "dominio", "banco", "tts",
             "envio_audio", "envio_texto"} <= set(linha["tempos_json"])
@@ -250,3 +251,72 @@ def test_dialogo_do_feijao_ponta_a_ponta(ambiente):
     assert (feijao.quantidade, feijao.custo_medio) == (8, Decimal("10.0000"))
     # o contexto da 3ª fala trazia a pendência para o LLM
     assert interp.contextos[2].pendencias[0]["faltando"] == ["valor"]
+
+
+# --- F6: relatório, anexos, botão do fechamento e preferências --------------------------------------------
+
+class WhatsAppComAnexos(FakeWhatsApp):
+    def __init__(self):
+        super().__init__()
+        self.anexos = []
+
+    def enviar_imagem(self, para, conteudo, mime, legenda=""):
+        self.anexos.append(("image", legenda))
+        return "wamid.img"
+
+    def enviar_documento(self, para, conteudo, nome, mime, legenda=""):
+        self.anexos.append(("document", nome))
+        return "wamid.doc"
+
+
+def test_relatorio_vai_em_texto_e_a_voz_fala_so_o_resumo():
+    from app.servicos.relatorios import ServicoRelatorios
+
+    wa, lojas, mensagens = WhatsAppComAnexos(), {}, FakeMensagens()
+    interp = FakeInterpreter(COMPRA, [{"tipo": "consulta", "assunto": "caixa", "periodo": "hoje"}],
+                             [{"tipo": "consulta", "assunto": "caixa", "periodo": "hoje", "formato": "planilha"}])
+    p = Pipeline(whatsapp=wa, stt=FakeSTT(), interpreter=interp, tts=FakeTTS(), tenants=FakeTenants(),
+                 loja=lambda c: lojas.setdefault(c.telefone, LojaMemoria()), mensagens=mensagens,
+                 controle=Controle(MemoriaRedis()),
+                 relatorios=lambda c: ServicoRelatorios(lojas[c.telefone]))
+    p.processar(audio("m1"))
+    p.processar(audio("m2"))
+    _, texto = wa.textos[-1]
+    _, voz = wa.audios[-1]
+    assert texto.startswith("Caixa: hoje") and "```" in texto and "R$ 300,00" in texto
+    assert b"```" not in voz.conteudo and voz.conteudo.decode().endswith("Mandei a tabela por escrito.")
+    assert mensagens.de("m2")["intencao_json"]["relatorios"] == [{"periodo": "hoje", "formato": "resumo"}]
+
+    p.processar(audio("m3"))
+    assert wa.anexos == [("document", next(n for t, n in wa.anexos))]
+    assert wa.anexos[0][1].startswith("caixa_") and wa.anexos[0][1].endswith(".csv")
+    assert mensagens.saidas[-1]["tipo"] == "document"
+
+
+def test_botao_do_fechamento_nao_chama_a_ia():
+    from app.servicos.relatorios import ServicoRelatorios
+
+    wa, lojas, mensagens = WhatsAppComAnexos(), {}, FakeMensagens()
+    interp = FakeInterpreter(COMPRA)
+    p = Pipeline(whatsapp=wa, stt=FakeSTT(), interpreter=interp, tts=FakeTTS(), tenants=FakeTenants(),
+                 loja=lambda c: lojas.setdefault(c.telefone, LojaMemoria()), mensagens=mensagens,
+                 controle=Controle(MemoriaRedis()), relatorios=lambda c: ServicoRelatorios(lojas[c.telefone]),
+                 resposta_em_audio=lambda c: False)
+    p.processar(audio("m1"))
+    chamadas = len(interp.contextos)
+    p.processar(MensagemRecebida(telefone="5585999990001", msg_id="b1", tipo="button", texto="Ver detalhes",
+                                 payload="caixa|hoje|itens"))
+    assert len(interp.contextos) == chamadas
+    assert wa.textos[-1][1].startswith("Vendido: hoje")
+
+
+def test_preferencias_e_aviso():
+    gravadas, wa = [], FakeWhatsApp()
+    interp = FakeInterpreter([{"tipo": "configurar", "campos": {"fechamento_horario": "20h"}}])
+    p = Pipeline(whatsapp=wa, stt=FakeSTT(), interpreter=interp, tts=FakeTTS(), tenants=FakeTenants(),
+                 loja=lambda c: LojaMemoria(), mensagens=FakeMensagens(), controle=Controle(MemoriaRedis()),
+                 configurar=lambda c, v: gravadas.append(v), aviso=lambda c: "Aviso do fechamento.",
+                 resposta_em_audio=lambda c: False)
+    p.processar(audio("m1"))
+    assert gravadas == [{"fechamento_diario_horario": "20:00"}]
+    assert wa.textos[-1][1].endswith("Pode chegar até 15 minutos depois.\n\nAviso do fechamento.")

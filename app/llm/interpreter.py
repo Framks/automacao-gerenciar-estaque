@@ -21,7 +21,7 @@ from app.errors import ServicoIndisponivel
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSAO = "v2"
+PROMPT_VERSAO = "v2.1"  # v2 + pagamento, fiado, caixa e configurar (F6)
 
 PROMPT_V1 = """Você interpreta falas de pequenos comerciantes sobre o estoque da loja.
 Responda APENAS com um JSON neste formato:
@@ -48,7 +48,8 @@ PROMPT_V2 = """Você interpreta mensagens (transcritas de áudio, podem ter erro
 anotam estoque e gastos pelo WhatsApp. Você recebe o CONTEXTO da conversa e a FALA atual.
 Responda APENAS com um JSON:
 {"operacoes": [{"tipo": "...", "itens": [], "valor": null, "categoria": null, "descricao": null,
-  "pendencia_id": null, "movimento_ref": null, "campos": {}, "assunto": null, "periodo": null, "confianca": 0.9}]}
+  "forma_pagamento": null, "cliente": null, "pendencia_id": null, "movimento_ref": null, "campos": {},
+  "assunto": null, "periodo": null, "formato": null, "confianca": 0.9}]}
 
 Tipos de operação:
 - compra: entrou mercadoria (comprei, chegou, recebi, repus, adicionar). itens obrigatório.
@@ -58,16 +59,32 @@ Tipos de operação:
   funcionario, impostos, embalagem, manutencao, mercadoria, outros (null se não disse com o quê).
   "descricao" = o que foi, em poucas palavras (null se não disse). "gastei 100 reais de arroz" é COMPRA de arroz.
 - retirada: o dono tirou dinheiro do caixa para ele ("tirei 50 pra mim"). "valor".
+- forma_pagamento (compra, venda, despesa, recebimento): dinheiro, pix, cartao ou fiado, SÓ se a fala disser
+  (débito/crédito/maquininha = cartao; caderneta/pendura/"pra pagar depois" = fiado). Senão null.
+  Venda fiado: "cliente" = o nome falado ("vendi fiado pro João" -> "João").
+- recebimento: um CLIENTE pagou o fiado ("o João pagou 20", "a Maria acertou tudo"). "cliente", "valor";
+  "tudo": true se quitou tudo. "Paguei 20 pro fornecedor" NÃO é recebimento (é despesa ou compra).
+- perdoar: esquecer a dívida de um cliente ("esquece o que o Zé deve"). "cliente".
+- configurar: o comerciante muda uma preferência. "campos" só com: fechamento_horario (o horário como foi
+  falado, ex. "8 da noite", ou "desligar"), fechamento_mensal (true/false), fechamento_formato ("resumo" ou
+  "itens"), pagamento_padrao. Pergunta sobre a preferência ("que horas vem o fechamento?"): campos {}.
 - completar: a fala responde uma PENDÊNCIA do contexto (o bot perguntou o valor, a quantidade, com o que foi
   o gasto). "pendencia_id" = o id da pendência. "campos" = só o que foi dito, entre: valor_unitario,
-  valor_total, quantidade, unidade, categoria, descricao. Ex.: {"valor_unitario": 10}.
+  valor_total, quantidade, unidade, categoria, descricao, cliente, cliente_novo (true em "é cliente novo"),
+  forma_pagamento, fechamento_horario. Ex.: {"valor_unitario": 10}.
   Se existe pendência de valor de um produto e a fala dá um preço desse produto SEM dizer que vendeu,
   é completar, NÃO é venda.
 - corrigir: muda uma anotação já feita ("errei, eram 12 quilos", "o arroz foi 60, não 50").
   "movimento_ref" = id do movimento em ultimos_movimentos, ou "ultimo". "campos" = os dados corretos,
-  incluindo "produto" se citado. Se for só para apagar a última anotação, use desfazer.
-- consulta: pergunta. "assunto": "estoque" (quanto tem, o que tem; itens com os produtos citados, ou [] para
-  tudo) ou "gastos" (quanto gastei; "periodo": "hoje", "semana" ou "mes"; "categoria" se citada).
+  incluindo "produto" se citado, e "forma_pagamento"/"cliente" ("foi no pix", "essa foi fiado pro João").
+  Se for só para apagar a última anotação, use desfazer.
+- consulta: pergunta. "assunto":
+  "estoque" (quanto tem, o que tem; itens com os produtos citados, ou [] para tudo);
+  "gastos" (quanto gastei; "periodo": "hoje", "semana" ou "mes"; "categoria" se citada);
+  "caixa" (como foi o caixa, quanto vendi, fechamento, relatório; "periodo": hoje, ontem, semana, mes,
+  mes_passado, "dia:3", "mes:10", "data:2026-11-03"; "formato": resumo, itens (o que vendi), por_dia (o mês
+  dia a dia), grafico, planilha (arquivo); null se não pediu);
+  "fiado" (quem me deve, quanto o João deve; "cliente" se citado; "dias" em "há mais de 30 dias").
 - desfazer: "desfazer", "apaga o último", "cancela a última anotação".
 - confirmar: "sim", "isso", "pode anotar", "foi venda" respondendo a uma pendência de confirmação.
   "pendencia_id" = o id da confirmação.
@@ -110,7 +127,16 @@ Exemplos (contexto resumido):
    "quantidade":1,"unidade":"kg","valor_unitario":null,"valor_total":null}],"confianca":0.95}]}
 8. Fala: "quanto eu gastei essa semana com frete?"
    {"operacoes":[{"tipo":"consulta","assunto":"gastos","periodo":"semana","categoria":"transporte_frete",
-   "confianca":0.95}]}"""
+   "confianca":0.95}]}
+9. Fala: "vendi 3 quilos de arroz fiado pra dona Maria, 18 reais"
+   {"operacoes":[{"tipo":"venda","itens":[{"produto":"arroz","quantidade":3,"unidade":"kg","valor_unitario":null,
+   "valor_total":18}],"forma_pagamento":"fiado","cliente":"dona Maria","confianca":0.95}]}
+10. Fala: "o João me pagou 20 no pix"
+   {"operacoes":[{"tipo":"recebimento","cliente":"João","valor":20,"forma_pagamento":"pix","confianca":0.95}]}
+11. Fala: "me manda o fechamento do caixa todo dia às 8 da noite"
+   {"operacoes":[{"tipo":"configurar","campos":{"fechamento_horario":"8 da noite"},"confianca":0.95}]}
+12. Fala: "como foram as vendas de outubro?"
+   {"operacoes":[{"tipo":"consulta","assunto":"caixa","periodo":"mes:10","formato":null,"confianca":0.9}]}"""
 
 
 @dataclass

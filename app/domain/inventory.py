@@ -58,6 +58,7 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
             )
             continue
 
+        custo_na_venda = None
         if intencao.acao == Acao.COMPRA:
             if atual is None:
                 atual = ProdutoEstoque(produto=nome, unidade=unidade or "un", quantidade=ZERO)
@@ -79,6 +80,7 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
                 continue
             depois = antes - q
             tipo = TipoMovimento.SAIDA
+            custo_na_venda = atual.custo_medio
 
         atual.quantidade = depois
         atual.atualizado_em = agora
@@ -95,6 +97,7 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
                 valor_unitario=valor_unitario,
                 texto_transcrito=texto,
                 whatsapp_msg_id=msg_id,
+                custo_unitario=custo_na_venda,
             )
         )
         resultado.mudancas.append(

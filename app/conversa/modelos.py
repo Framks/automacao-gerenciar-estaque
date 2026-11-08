@@ -9,8 +9,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from app.domain.fiado import Cliente, LancamentoFiado
 from app.domain.financeiro import AlteracaoLancamento, CATEGORIAS, Lancamento
 from app.domain.models import Movimento, ProdutoEstoque
+from app.domain.pagamento import FORMAS, NAO_INFORMADO
 
 
 @dataclass
@@ -46,6 +48,42 @@ class FechamentoPendencia:
 
 
 @dataclass
+class AlteracaoMovimento:
+    """Mudar o meio de pagamento é dado descritivo (não muda valor nem estoque): atualiza com histórico."""
+
+    id: str
+    forma_pagamento: str
+    forma_pagamento_origem: str = "dito"
+    motivo: str = ""
+
+
+@dataclass
+class PedidoRelatorio:
+    """O atendimento só entende o pedido; quem carrega o livro do período e monta o relatório é o pipeline."""
+
+    periodo: str | None = None
+    formato: str = "resumo"  # resumo | itens | por_dia | grafico | planilha
+
+
+@dataclass
+class Anexo:
+    """Arquivo que vai junto da resposta (gráfico, planilha)."""
+
+    tipo: str  # image | document
+    conteudo: bytes
+    mime: str
+    nome: str = ""
+    legenda: str = ""
+
+
+@dataclass
+class RespostaRelatorio:
+    texto: str  # vai por escrito (pode ter tabela)
+    fala: str = ""  # o que a voz fala (sem tabela); vazio = o próprio texto
+    anexos: list[Anexo] = field(default_factory=list)
+
+
+@dataclass
 class Plano:
     movimentos: list[Movimento] = field(default_factory=list)
     estoque: dict[str, ProdutoEstoque] = field(default_factory=dict)  # chave -> produto alterado
@@ -54,11 +92,16 @@ class Plano:
     pendencias_novas: list[Pendencia] = field(default_factory=list)
     pendencias_alteradas: list[Pendencia] = field(default_factory=list)  # já existentes (com id)
     pendencias_fechadas: list[FechamentoPendencia] = field(default_factory=list)
+    movimentos_alterados: list[AlteracaoMovimento] = field(default_factory=list)
+    fiado: list[LancamentoFiado] = field(default_factory=list)
+    clientes: dict[str, Cliente] = field(default_factory=dict)  # chave -> cliente depois (novos e alterados)
+    configuracoes: dict[str, Any] = field(default_factory=dict)  # preferências do comerciante (gravadas à parte)
 
     @property
     def vazio(self) -> bool:
         return not any([self.movimentos, self.estoque, self.lancamentos, self.lancamentos_alterados,
-                        self.pendencias_novas, self.pendencias_alteradas, self.pendencias_fechadas])
+                        self.pendencias_novas, self.pendencias_alteradas, self.pendencias_fechadas,
+                        self.movimentos_alterados, self.fiado, self.clientes])
 
 
 @dataclass
@@ -67,6 +110,8 @@ class EstadoConversa:
     pendencias: list[Pendencia]  # abertas e dentro da validade, da mais antiga para a mais nova
     movimentos: list[Movimento]  # os últimos N, em ordem cronológica
     lancamentos: list[Lancamento]  # do mês atual (e dos últimos 7 dias), em ordem cronológica
+    clientes: dict[str, Cliente] = field(default_factory=dict)  # chave -> cliente do fiado
+    fiado: list[LancamentoFiado] = field(default_factory=list)  # os últimos lançamentos do fiado
 
 
 @dataclass(frozen=True)
@@ -81,3 +126,11 @@ class Parametros:
     valor_limite: Decimal = Decimal(1000)
     pendencia_validade_horas: int = 24
     categorias_despesa: tuple[str, ...] = tuple(CATEGORIAS)
+    fiado: bool = True
+    perguntar_pagamento: bool = False
+    pagamento_padrao: str = NAO_INFORMADO
+    formas_pagamento: tuple[str, ...] = FORMAS
+    # preferências que o próprio comerciante muda pela conversa (para responder "que horas é o fechamento?")
+    fechamento_horario: str = ""
+    fechamento_mensal: bool = False
+    fechamento_formato: str = "resumo"

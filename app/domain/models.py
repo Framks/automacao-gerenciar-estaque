@@ -95,9 +95,12 @@ class Movimento:
     whatsapp_msg_id: str
     referencia: str = ""  # em ajustes de "desfazer": whatsapp_msg_id da mensagem desfeita
     referencia_mov: str = ""  # em ajuste_valor: id do movimento cujo valor foi completado/corrigido
+    forma_pagamento: str = "nao_informado"  # dinheiro | pix | cartao | fiado | nao_informado
+    forma_pagamento_origem: str = ""  # dito | padrao | "" (não informado)
+    custo_unitario: Decimal | None = None  # na saída: o custo médio na hora da venda (para o lucro)
 
     def __post_init__(self):
-        _decimais(self, "quantidade", "valor_total", "valor_unitario")
+        _decimais(self, "quantidade", "valor_total", "valor_unitario", "custo_unitario")
 
 
 @dataclass

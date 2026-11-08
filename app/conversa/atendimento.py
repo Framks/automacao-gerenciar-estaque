@@ -1,22 +1,36 @@
 """Motor da conversa: aplica as operações v2 de uma mensagem sobre o estado e decide o que perguntar.
 
 Código puro (sem banco, sem rede, sem LLM). Entra: as operações entendidas, o estado do comerciante e a fala.
-Sai: o `Plano` (tudo que deve ser gravado, numa transação só) e o texto da resposta.
+Sai: o `Plano` (tudo que deve ser gravado, numa transação só), o texto da resposta e os pedidos de relatório
+(o relatório precisa do livro do período, que o pipeline carrega).
 
 Regras principais:
 - falta campo obrigatório: não grava; abre pendência e pergunta;
 - falta campo desejável (valor da compra, categoria do gasto): grava e pergunta;
 - completar nunca reescreve o livro-caixa: gera `ajuste_valor` referenciando o original;
 - uma pergunta por resposta; resolvida uma pendência, pergunta a próxima;
-- dúvida (confiança baixa, valor sem verbo, preço fora do custo, valor alto): confirma antes de gravar.
+- dúvida (confiança baixa, valor sem verbo, preço fora do custo, valor alto): confirma antes de gravar;
+- fiado: a venda só é gravada com o cliente e o valor; a dívida fica num livro próprio (só acrescenta).
 """
 
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from app.conversa.ambiguidade import avaliar_duvida
-from app.conversa.modelos import EstadoConversa, FechamentoPendencia, Parametros, Pendencia, Plano
+from app.conversa.modelos import (
+    AlteracaoMovimento,
+    EstadoConversa,
+    FechamentoPendencia,
+    Parametros,
+    Pendencia,
+    PedidoRelatorio,
+    Plano,
+)
+from app.domain import clientes as cli
+from app.domain import fiado as fd
 from app.domain import inventory, replies
 from app.domain.dinheiro import parse_valor, reais, resolver_valores, ValoresIncoerentes
 from app.domain.financeiro import (
@@ -30,10 +44,13 @@ from app.domain.financeiro import (
 )
 from app.domain.models import Movimento, Resultado, TipoMovimento
 from app.domain.operacoes import Operacao, RespostaLLM, TipoOperacao, avaliar, para_intencao
+from app.domain.pagamento import NAO_INFORMADO, normalizar_pagamento, resolver_forma
+from app.domain.periodos import parse_horario, resolver_periodo
 from app.domain.units import chave_produto, nome_produto, normalizar_unidade
 
 FORMATO = "%Y-%m-%d %H:%M:%S"
 SUFIXO_DESFAZER = " Se estiver errado, diga: desfazer."
+FORMATOS_RELATORIO = ("resumo", "itens", "por_dia", "grafico", "planilha")
 
 
 @dataclass
@@ -42,6 +59,17 @@ class Saida:
     texto: str
     pergunta: str = ""
     resumo: list[dict[str, Any]] = field(default_factory=list)  # o que foi feito com cada operação (para o log)
+    pedidos: list[PedidoRelatorio] = field(default_factory=list)  # relatórios que o pipeline deve montar
+
+
+def _tem_valor(item) -> bool:
+    return item.valor_unitario is not None or item.valor_total is not None
+
+
+def _bool(valor) -> bool:
+    if isinstance(valor, bool):
+        return valor
+    return str(valor).strip().lower() in ("true", "sim", "1", "ligar", "liga", "ligado", "quero")
 
 
 class _Execucao:
@@ -55,13 +83,19 @@ class _Execucao:
         self.estoque = dict(estado.estoque)
         self.movimentos = list(estado.movimentos)
         self.lancamentos = list(estado.lancamentos)
+        self.clientes = dict(estado.clientes)
+        self.fiado = list(estado.fiado)
         self.abertas = list(estado.pendencias)
         self.plano = Plano()
         self.frases: list[str] = []
         self.perguntas: list[str] = []
+        self.pedidos: list[PedidoRelatorio] = []
         self.resolveu = False
         self.resumo: list[dict[str, Any]] = []
         self._seq = 0
+
+    def estado(self) -> EstadoConversa:
+        return EstadoConversa(self.estoque, self.abertas, self.movimentos, self.lancamentos, self.clientes, self.fiado)
 
     # --- ids e gravação ---------------------------------------------------------------------------------
 
@@ -70,10 +104,12 @@ class _Execucao:
         self._seq += 1
         return id_
 
-    def gravar_resultado(self, r: Resultado) -> list[Movimento]:
+    def gravar_resultado(self, r: Resultado, forma: str = NAO_INFORMADO, origem: str = "") -> list[Movimento]:
         novos = []
         for m in r.movimentos:
             m = replace(m, id=self.proximo_id())
+            if m.tipo in (TipoMovimento.ENTRADA, TipoMovimento.SAIDA):
+                m = replace(m, forma_pagamento=forma, forma_pagamento_origem=origem)
             novos.append(m)
         self.plano.movimentos += novos
         self.movimentos += novos
@@ -82,6 +118,24 @@ class _Execucao:
             self.estoque[chave] = produto
             self.plano.estoque[chave] = produto
         return novos
+
+    def lancar_fiado(self, chave: str, nome: str, tipo: str, valor: Decimal, *, movimento_ref: str = "",
+                     forma: str = "", referencia: str = "") -> fd.Cliente:
+        cliente = self.clientes.get(chave) or fd.Cliente(nome=nome, chave=chave)
+        lanc = fd.LancamentoFiado(self.proximo_id(), self.agora, chave, cliente.nome, tipo, reais(valor),
+                                  movimento_ref=movimento_ref, forma_pagamento=forma, texto=self.texto,
+                                  wa_msg_id=self.msg_id, referencia=referencia)
+        novo = fd.aplicar(cliente, lanc)
+        self.clientes[chave] = novo
+        self.plano.clientes[chave] = novo
+        self.plano.fiado.append(lanc)
+        self.fiado.append(lanc)
+        return novo
+
+    def alterar_forma(self, m: Movimento, forma: str, origem: str = "dito") -> None:
+        self.plano.movimentos_alterados.append(AlteracaoMovimento(m.id, forma, origem, motivo=self.texto))
+        self.movimentos = [replace(x, forma_pagamento=forma, forma_pagamento_origem=origem) if x.id == m.id else x
+                           for x in self.movimentos]
 
     # --- pendências -------------------------------------------------------------------------------------
 
@@ -135,7 +189,7 @@ class Atendimento:
         ex = _Execucao(estado, self.p, texto, msg_id, agora)
         operacoes = resposta.operacoes or [Operacao(tipo=TipoOperacao.CONVERSA)]
         for op in operacoes:
-            if op.tipo not in (TipoOperacao.CONFIRMAR, TipoOperacao.CANCELAR):
+            if op.tipo not in (TipoOperacao.CONFIRMAR, TipoOperacao.CANCELAR) and not self._responde_confirmacao(ex, op):
                 ex.cancelar_confirmacoes()
             antes = len(ex.frases), len(ex.perguntas)
             self._despachar(ex, op)
@@ -143,12 +197,20 @@ class Atendimento:
                               "perguntas": len(ex.perguntas) - antes[1]})
         return self._montar_saida(ex)
 
+    @staticmethod
+    def _responde_confirmacao(ex: _Execucao, op: Operacao) -> bool:
+        """"é o João Pedro" / "é cliente novo" respondendo a "Você quis dizer...?" não cancela a pergunta."""
+        return op.tipo == TipoOperacao.COMPLETAR and bool(op.campos.get("cliente") or op.campos.get("cliente_novo")) \
+            and any(pd.tipo == "confirmacao" and "cliente" in pd.campos_faltando for pd in ex.abertas)
+
     # --- despacho ---------------------------------------------------------------------------------------
 
     def _despachar(self, ex: _Execucao, op: Operacao) -> None:
         tratar = {
             TipoOperacao.COMPRA: self._compra_venda, TipoOperacao.VENDA: self._compra_venda,
             TipoOperacao.DESPESA: self._despesa, TipoOperacao.RETIRADA: self._despesa,
+            TipoOperacao.RECEBIMENTO: self._recebimento, TipoOperacao.PERDOAR: self._perdoar,
+            TipoOperacao.CONFIGURAR: self._configurar,
             TipoOperacao.COMPLETAR: self._completar, TipoOperacao.CORRIGIR: self._corrigir,
             TipoOperacao.CONSULTA: self._consulta, TipoOperacao.DESFAZER: self._desfazer,
             TipoOperacao.CONFIRMAR: self._confirmar, TipoOperacao.CANCELAR: self._cancelar,
@@ -156,11 +218,28 @@ class Atendimento:
         }[op.tipo]
         tratar(ex, op)
 
+    def _reexecutar(self, ex: _Execucao, op: Operacao) -> None:
+        """Roda de novo uma operação que estava esperando (resposta a uma pergunta ou um "sim")."""
+        if op.tipo in (TipoOperacao.COMPRA, TipoOperacao.VENDA):
+            self._compra_venda(ex, op, confirmado=True)
+        elif op.tipo == TipoOperacao.RECEBIMENTO:
+            self._recebimento(ex, op, confirmado=True)
+        elif op.tipo == TipoOperacao.PERDOAR:
+            self._perdoar(ex, op, confirmado=True)
+        else:
+            self._despachar(ex, op)
+
+    # --- compra e venda ---------------------------------------------------------------------------------
+
+    def _forma(self, op: Operacao) -> tuple[str, str]:
+        if op.tipo == TipoOperacao.VENDA:
+            return resolver_forma(op.forma_pagamento, self.p.pagamento_padrao)
+        forma = op.forma_pagamento if op.forma_pagamento in ("dinheiro", "pix", "cartao", "fiado") else None
+        return (forma, "dito") if forma else (NAO_INFORMADO, "")
+
     def _compra_venda(self, ex: _Execucao, op: Operacao, confirmado: bool = False) -> None:
         if not confirmado:
-            duvida = avaliar_duvida(op, ex.texto, EstadoConversa(ex.estoque, ex.abertas, ex.movimentos,
-                                                                 ex.lancamentos), self.p,
-                                    lambda o: self._descrever(o, ex.estoque))
+            duvida = avaliar_duvida(op, ex.texto, ex.estado(), self.p, lambda o: self._descrever(o, ex.estoque))
             if duvida:
                 ex.abrir("confirmacao", op, [], self._descrever(op, ex.estoque), duvida.pergunta)
                 return
@@ -178,12 +257,28 @@ class Atendimento:
                      item=falta.indice)
             return
 
+        forma, origem = self._forma(op)
+        fiado = op.tipo == TipoOperacao.VENDA and forma == "fiado"
+        cliente = None
+        if fiado:
+            cliente = self._preparar_fiado(ex, op, confirmado)
+            if cliente is None:
+                return
+
         r = inventory.aplicar(para_intencao(op), ex.estoque, texto=ex.texto, msg_id=ex.msg_id, agora=ex.agora)
         if not r.ok:
             ex.frases.append(replies.montar(r))
             return
-        novos = ex.gravar_resultado(r)
-        ex.frases.append(replies.montar(r))
+        novos = ex.gravar_resultado(r, forma, origem)
+
+        extra = ""
+        if fiado and cliente is not None:
+            for m in novos:
+                atual = ex.lancar_fiado(cliente.chave, cliente.nome, "divida", m.valor_total, movimento_ref=m.id)
+            extra = replies.fiado_anotado(atual.nome, atual.saldo)
+        elif origem == "dito":
+            extra = replies.frase_pagamento(op.tipo.value, forma)
+        ex.frases.append(replies.montar(r, extra))
 
         if op.tipo == TipoOperacao.COMPRA and self.p.perguntar_valor_compra:
             for falta in av.itens:
@@ -192,6 +287,36 @@ class Atendimento:
                 m = novos[falta.indice]
                 ex.abrir("completar", op, ["valor"], replies.resumo_entrada(m.quantidade, m.unidade, m.produto),
                          replies.pergunta_valor("compra", m.produto), movimento_ref=m.id, item=falta.indice)
+
+        if op.tipo == TipoOperacao.VENDA and forma == NAO_INFORMADO and self.p.perguntar_pagamento and novos:
+            m = novos[0]
+            ex.abrir("completar", op, ["forma_pagamento"], f"a venda de {replies.qtd(m.quantidade, m.unidade)} de "
+                     f"{m.produto}", replies.pergunta_pagamento(self.p.formas_pagamento), movimento_ref=m.id)
+
+    def _preparar_fiado(self, ex: _Execucao, op: Operacao, confirmado: bool) -> cli.Resolucao | None:
+        """Cliente e valor são obrigatórios na venda fiado. None = perguntou (ou não dá) e nada foi gravado."""
+        produtos = " e ".join(nome_produto(i.produto) for i in op.itens)
+        if not self.p.fiado:
+            ex.frases.append(replies.FIADO_DESLIGADO)
+            return None
+        if not (op.cliente or "").strip():
+            ex.abrir("completar", op, ["cliente"], f"a venda fiado de {produtos}", replies.PERGUNTA_CLIENTE_FIADO)
+            return None
+        res = cli.resolver(op.cliente, ex.clientes, estrito=confirmado)
+        if res.sugestoes:
+            sugerida = op.model_copy(update={"campos": {"sugestao_cliente": res.sugestoes[0]}})
+            ex.abrir("confirmacao", sugerida, ["cliente"], f"a venda fiado de {produtos}",
+                     replies.pergunta_cliente_parecido(res.nome, res.sugestoes))
+            return None
+        sem_valor = [i for i, item in enumerate(op.itens) if not _tem_valor(item)]
+        if sem_valor:
+            nome = nome_produto(op.itens[sem_valor[0]].produto)
+            ex.abrir("completar", op, ["valor"], f"a venda fiado de {nome}", replies.pergunta_valor_fiado(nome),
+                     item=sem_valor[0])
+            return None
+        return res
+
+    # --- despesas -----------------------------------------------------------------------------------------
 
     def _despesa(self, ex: _Execucao, op: Operacao) -> None:
         if not self.p.despesas:
@@ -202,16 +327,18 @@ class Atendimento:
             ex.abrir("completar", op, ["valor"], "um gasto sem valor", replies.pergunta_valor_despesa())
             return
         valor = reais(op.valor)
+        forma = self._forma(op)[0]
+        forma = "" if forma == NAO_INFORMADO else forma
         if op.tipo == TipoOperacao.RETIRADA:
             lanc = Lancamento(ex.proximo_id(), ex.agora, "retirada", valor, "retirada", op.descricao or "",
-                              ex.texto, ex.msg_id)
+                              ex.texto, ex.msg_id, forma_pagamento=forma)
             ex.plano.lancamentos.append(lanc)
             ex.lancamentos.append(lanc)
             ex.frases.append(replies.retirada_anotada(valor))
             return
         categoria = normalizar_categoria(op.categoria or op.descricao, list(self.p.categorias_despesa))
         lanc = Lancamento(ex.proximo_id(), ex.agora, "despesa", valor, categoria, (op.descricao or "").strip(),
-                          ex.texto, ex.msg_id)
+                          ex.texto, ex.msg_id, forma_pagamento=forma)
         ex.plano.lancamentos.append(lanc)
         ex.lancamentos.append(lanc)
         falada = NOMES_CATEGORIA.get(categoria) if categoria != "outros" else None
@@ -220,18 +347,140 @@ class Atendimento:
             ex.abrir("completar", op, ["categoria"], f"o gasto de {replies.fmt_reais(valor)}",
                      replies.pergunta_categoria(valor), lancamento_ref=lanc.id)
 
+    # --- fiado: pagamento e perdão ---------------------------------------------------------------------------
+
+    def _cliente_existente(self, ex: _Execucao, op: Operacao, resumo: str) -> fd.Cliente | None:
+        if not self.p.fiado:
+            ex.frases.append(replies.FIADO_DESLIGADO)
+            return None
+        if not (op.cliente or "").strip():
+            ex.abrir("completar", op, ["cliente"], resumo, replies.PERGUNTA_QUEM_PAGOU)
+            return None
+        chave, sugestoes = cli.buscar_existente(op.cliente, ex.clientes)
+        if chave is None:
+            if len(sugestoes) > 1:
+                ex.abrir("completar", op, ["cliente"], resumo, replies.pergunta_qual_cliente(sugestoes))
+            else:
+                ex.frases.append(replies.cliente_nao_achado(cli.nome_cliente(op.cliente), sugestoes))
+            return None
+        return ex.clientes[chave]
+
+    def _recebimento(self, ex: _Execucao, op: Operacao, confirmado: bool = False) -> None:
+        cliente = self._cliente_existente(ex, op, "um pagamento de fiado")
+        if cliente is None:
+            return
+        if cliente.saldo <= 0:
+            ex.frases.append(replies.nao_deve(cliente.nome))
+            return
+        valor = cliente.saldo if op.tudo else (reais(op.valor) if op.valor else None)
+        if valor is None or valor <= 0:
+            ex.abrir("completar", op, ["valor"], f"o pagamento de {cliente.nome}",
+                     replies.pergunta_quanto_pagou(cliente.nome))
+            return
+        if valor > cliente.saldo and not confirmado:
+            quita = op.model_copy(update={"valor": cliente.saldo, "tudo": False, "cliente": cliente.nome})
+            ex.abrir("confirmacao", quita, [], f"o pagamento de {cliente.nome}",
+                     replies.confirmar_quitacao(cliente.nome, cliente.saldo))
+            return
+        valor = min(valor, cliente.saldo)
+        forma, _ = resolver_forma(op.forma_pagamento, self.p.pagamento_padrao)
+        forma = "" if forma == NAO_INFORMADO else forma
+        depois = ex.lancar_fiado(cliente.chave, cliente.nome, "pagamento", -valor, forma=forma)
+        ex.frases.append(replies.pagamento_fiado(cliente.nome, valor, forma, depois.saldo))
+
+    def _perdoar(self, ex: _Execucao, op: Operacao, confirmado: bool = False) -> None:
+        cliente = self._cliente_existente(ex, op, "o perdão de uma dívida")
+        if cliente is None:
+            return
+        if cliente.saldo <= 0:
+            ex.frases.append(replies.nao_deve(cliente.nome))
+            return
+        if not confirmado:
+            ex.abrir("confirmacao", op.model_copy(update={"cliente": cliente.nome}), [],
+                     f"o perdão da dívida de {cliente.nome}", replies.confirmar_perdao(cliente.nome, cliente.saldo))
+            return
+        valor = cliente.saldo
+        ex.lancar_fiado(cliente.chave, cliente.nome, "perdao", -valor)
+        ex.frases.append(replies.perdoado(cliente.nome, valor))
+
+    # --- preferências do comerciante ---------------------------------------------------------------------
+
+    def _configurar(self, ex: _Execucao, op: Operacao) -> None:
+        campos = {k: v for k, v in op.campos.items() if v is not None and v != ""}
+        if not campos:
+            ex.frases.append(replies.config_atual(self.p.fechamento_horario, self.p.fechamento_mensal,
+                                                  self.p.fechamento_formato, self.p.pagamento_padrao))
+            return
+        for chave, valor in campos.items():
+            if chave in ("fechamento_horario", "horario", "fechamento_diario_horario"):
+                h = parse_horario(str(valor))
+                if h is None:
+                    ex.frases.append(replies.HORARIO_NAO_ENTENDI)
+                elif h.ambiguo is not None:
+                    pendente = op.model_copy(update={"campos": {"fechamento_horario": str(valor)}})
+                    ex.abrir("completar", pendente, ["horario"], "o horário do fechamento",
+                             replies.pergunta_manha_noite(h.ambiguo))
+                elif h.desligar:
+                    ex.plano.configuracoes["fechamento_diario_horario"] = ""
+                    ex.frases.append(replies.FECHAMENTO_DESLIGADO)
+                else:
+                    ex.plano.configuracoes["fechamento_diario_horario"] = h.hhmm
+                    ex.frases.append(replies.fechamento_ligado(h.hhmm))
+            elif chave in ("fechamento_mensal", "mensal"):
+                ligado = _bool(valor)
+                ex.plano.configuracoes["fechamento_mensal"] = ligado
+                ex.frases.append(replies.FECHAMENTO_MENSAL_LIGADO if ligado else replies.FECHAMENTO_MENSAL_DESLIGADO)
+            elif chave in ("fechamento_formato", "formato"):
+                itens = str(valor).strip().lower() in ("itens", "detalhado", "completo", "tudo", "com tudo")
+                ex.plano.configuracoes["fechamento_formato"] = "itens" if itens else "resumo"
+                ex.frases.append(replies.FECHAMENTO_FORMATO_ITENS if itens else replies.FECHAMENTO_FORMATO_RESUMO)
+            elif chave == "pagamento_padrao":
+                forma = normalizar_pagamento(str(valor))
+                if forma is None:
+                    ex.frases.append(replies.NAO_ENTENDI_PAGAMENTO)
+                elif forma == "fiado":
+                    ex.frases.append(replies.PAGAMENTO_PADRAO_FIADO)
+                else:
+                    ex.plano.configuracoes["pagamento_padrao"] = forma
+                    ex.frases.append(replies.pagamento_padrao_definido(forma))
+            else:
+                ex.frases.append(replies.CONFIG_NAO_PERMITIDA)
+
+    # --- completar, corrigir --------------------------------------------------------------------------------
+
     def _completar(self, ex: _Execucao, op: Operacao) -> None:
+        campos = op.campos
+        if campos.get("cliente") or campos.get("cliente_novo"):
+            confirmacao = next((pd for pd in reversed(ex.abertas) if pd.tipo == "confirmacao"
+                                and "cliente" in pd.campos_faltando
+                                and (op.pendencia_id is None or pd.id == op.pendencia_id)), None)
+            if confirmacao is not None and (op.pendencia_id is not None or ex.buscar("completar", None) is None):
+                pendente = Operacao.model_validate(confirmacao.operacao)
+                nome = pendente.cliente if campos.get("cliente_novo") else str(campos.get("cliente") or "")
+                ex.fechar(confirmacao, "resolvida")
+                self._reexecutar(ex, pendente.model_copy(update={"cliente": nome, "campos": {}}))
+                return
+
         pd = ex.buscar("completar", op.pendencia_id)
         if pd is None:
             ex.frases.append(replies.NADA_PENDENTE)
             return
-        campos = op.campos
 
         if pd.movimento_ref:
             original = next((m for m in ex.movimentos if m.id == pd.movimento_ref), None)
             if original is None:
                 ex.fechar(pd, "cancelada")
                 ex.frases.append(replies.NAO_ACHEI_ANOTACAO)
+                return
+            if "forma_pagamento" in pd.campos_faltando or "cliente" in pd.campos_faltando:
+                forma = normalizar_pagamento(campos.get("forma_pagamento"))
+                if "cliente" in pd.campos_faltando and campos.get("cliente"):
+                    forma = "fiado"
+                if forma is None or forma == NAO_INFORMADO:
+                    ex.frases.append(replies.NAO_ENTENDI_PAGAMENTO + " " + pd.pergunta)
+                    return
+                ex.fechar(pd, "resolvida")
+                self._mudar_forma(ex, original, forma, campos.get("cliente"))
                 return
             if not self._aplicar_valor(ex, original, campos):
                 return
@@ -259,18 +508,23 @@ class Atendimento:
             if campos.get("valor") is not None and item.get("valor_total") is None:
                 item["valor_total"] = campos["valor"]
             dados["itens"] = itens
+        elif dados.get("tipo") == TipoOperacao.CONFIGURAR.value:
+            antigo = str((dados.get("campos") or {}).get("fechamento_horario") or "")
+            novo = str(campos.get("fechamento_horario") or campos.get("horario") or campos.get("descricao") or "")
+            if novo and not re.search(r"\d", novo):
+                novo = f"{antigo} {novo}"
+            dados["campos"] = {"fechamento_horario": novo or antigo}
         else:
             for chave in ("valor", "categoria", "descricao"):
                 if campos.get(chave) is not None:
                     dados[chave] = campos[chave]
             if dados.get("valor") is None and campos.get("valor_total") is not None:
                 dados["valor"] = campos["valor_total"]
+        for chave in ("cliente", "forma_pagamento", "tudo"):
+            if campos.get(chave) not in (None, ""):
+                dados[chave] = campos[chave]
         ex.fechar(pd, "resolvida")
-        nova = Operacao.model_validate({**dados, "confianca": 1.0})
-        if nova.tipo in (TipoOperacao.COMPRA, TipoOperacao.VENDA):
-            self._compra_venda(ex, nova, confirmado=True)
-        else:
-            self._despesa(ex, nova)
+        self._reexecutar(ex, Operacao.model_validate({**dados, "confianca": 1.0}))
 
     def _aplicar_valor(self, ex: _Execucao, original: Movimento, campos: dict) -> bool:
         try:
@@ -294,6 +548,50 @@ class Atendimento:
         ex.frases.append(replies.valor_completado(
             original.produto, original.unidade, original.quantidade, m.valor_unitario, m.valor_total,
             produto.custo_medio if produto is not None else None, tipo))
+        if original.tipo == TipoMovimento.SAIDA:  # venda fiado: a dívida acompanha o valor novo
+            for divida in fd.dividas_da_venda(ex.fiado, {original.id}):
+                diferenca = reais(m.valor_total - fd.valor_da_divida(ex.fiado, divida))
+                if diferenca:
+                    depois = ex.lancar_fiado(divida.cliente, divida.cliente_nome, "ajuste", diferenca,
+                                             movimento_ref=original.id)
+                    ex.frases.append(replies.fiado_ajustado(depois.nome, depois.saldo))
+        return True
+
+    def _mudar_forma(self, ex: _Execucao, original: Movimento, forma: str, cliente_nome: str | None) -> bool:
+        """Troca o meio de pagamento de uma compra/venda já anotada. De ou para fiado mexe na dívida."""
+        movs = [m for m in ex.movimentos if m.whatsapp_msg_id == original.whatsapp_msg_id and m.tipo == original.tipo]
+        atual = original.forma_pagamento
+        if forma == atual:
+            ex.frases.append(replies.ja_estava(forma))
+            return True
+        extra = ""
+        if original.tipo == TipoMovimento.SAIDA and forma == "fiado":
+            if not self.p.fiado:
+                ex.frases.append(replies.FIADO_DESLIGADO)
+                return False
+            if not (cliente_nome or "").strip():
+                pendente = Operacao(tipo=TipoOperacao.CORRIGIR, movimento_ref=original.id,
+                                    campos={"forma_pagamento": "fiado"})
+                ex.abrir("completar", pendente, ["cliente"], f"a venda de {original.produto}",
+                         replies.PERGUNTA_CLIENTE_FIADO, movimento_ref=original.id)
+                return False
+            vigentes = inventory.valores_vigentes(ex.movimentos)
+            if any(vigentes.get(m.id, (None, None))[1] is None for m in movs):
+                ex.frases.append(replies.FIADO_PRECISA_VALOR)
+                return False
+            res = cli.resolver(cliente_nome, ex.clientes, estrito=True)
+            for m in movs:
+                depois = ex.lancar_fiado(res.chave, res.nome, "divida", vigentes[m.id][1], movimento_ref=m.id)
+            extra = replies.fiado_anotado(depois.nome, depois.saldo)
+        elif atual == "fiado":
+            for divida in fd.dividas_da_venda(ex.fiado, {m.id for m in movs}):
+                valor = fd.valor_da_divida(ex.fiado, divida)
+                depois = ex.lancar_fiado(divida.cliente, divida.cliente_nome, "ajuste", -valor,
+                                         movimento_ref=divida.movimento_ref, referencia=divida.id)
+                extra = replies.fiado_estornado(depois.nome, depois.saldo)
+        for m in movs:
+            ex.alterar_forma(m, forma)
+        ex.frases.append(" ".join(f for f in (replies.forma_alterada(forma), extra) if f))
         return True
 
     def _corrigir(self, ex: _Execucao, op: Operacao) -> None:
@@ -307,31 +605,56 @@ class Atendimento:
         if original is None:
             ex.frases.append(replies.NAO_ACHEI_ANOTACAO)
             return
+        feito = False
         if any(campos.get(k) is not None for k in ("valor", "valor_unitario", "valor_total")):
+            feito = True
             if self._aplicar_valor(ex, original, campos):
-                for pd in [pd for pd in ex.abertas if pd.movimento_ref == original.id]:
+                for pd in [pd for pd in ex.abertas if pd.movimento_ref == original.id and "valor" in pd.campos_faltando]:
                     ex.fechar(pd, "resolvida")
-            return
         if campos.get("quantidade") is not None:
-            try:
-                nova = parse_valor(campos["quantidade"])
-            except ValueError:
-                nova = None
-            if not nova:
-                ex.frases.append(f"Não entendi a quantidade de {original.produto}.")
-                return
-            r = inventory.corrigir_quantidade(original, ex.estoque, quantidade_nova=nova, texto=ex.texto,
-                                              msg_id=ex.msg_id, agora=ex.agora)
-            if not r.ok:
-                ex.frases.append(" ".join(r.problemas))
-                return
-            ex.gravar_resultado(r)
-            mud = r.mudancas[0]
-            ex.frases.append(replies.quantidade_corrigida(mud.produto, mud.unidade, mud.antes, mud.depois))
+            feito = True
+            self._corrigir_quantidade(ex, original, campos["quantidade"])
+        forma = normalizar_pagamento(campos.get("forma_pagamento") or op.forma_pagamento)
+        if forma and forma != NAO_INFORMADO:
+            feito = True
+            original = next((m for m in ex.movimentos if m.id == original.id), original)
+            if self._mudar_forma(ex, original, forma, campos.get("cliente") or op.cliente):
+                for pd in [pd for pd in ex.abertas if pd.movimento_ref == original.id
+                           and "forma_pagamento" in pd.campos_faltando]:
+                    ex.fechar(pd, "resolvida")
+        if not feito:
+            ex.frases.append(replies.CORRIGIR_PRODUTO)
+
+    def _corrigir_quantidade(self, ex: _Execucao, original: Movimento, valor) -> None:
+        try:
+            nova = parse_valor(valor)
+        except ValueError:
+            nova = None
+        if not nova:
+            ex.frases.append(f"Não entendi a quantidade de {original.produto}.")
             return
-        ex.frases.append(replies.CORRIGIR_PRODUTO)
+        r = inventory.corrigir_quantidade(original, ex.estoque, quantidade_nova=nova, texto=ex.texto,
+                                          msg_id=ex.msg_id, agora=ex.agora)
+        if not r.ok:
+            ex.frases.append(" ".join(r.problemas))
+            return
+        ex.gravar_resultado(r)
+        mud = r.mudancas[0]
+        ex.frases.append(replies.quantidade_corrigida(mud.produto, mud.unidade, mud.antes, mud.depois))
+
+    # --- consultas --------------------------------------------------------------------------------------------
 
     def _consulta(self, ex: _Execucao, op: Operacao) -> None:
+        if op.assunto == "caixa":
+            formato = op.formato if op.formato in FORMATOS_RELATORIO else None
+            if formato is None:
+                hoje = datetime.strptime(ex.agora, FORMATO).date()
+                formato = "por_dia" if resolver_periodo(op.periodo, hoje).tipo == "mes" else "resumo"
+            ex.pedidos.append(PedidoRelatorio(op.periodo, formato))
+            return
+        if op.assunto == "fiado":
+            self._consulta_fiado(ex, op)
+            return
         if op.assunto == "gastos":
             agora = datetime.strptime(ex.agora, FORMATO)
             categoria = normalizar_categoria(op.categoria, list(self.p.categorias_despesa)) if op.categoria else None
@@ -345,7 +668,28 @@ class Atendimento:
         r = inventory.aplicar(para_intencao(op), ex.estoque, texto=ex.texto, msg_id=ex.msg_id, agora=ex.agora)
         ex.frases.append(replies.montar(r))
 
+    def _consulta_fiado(self, ex: _Execucao, op: Operacao) -> None:
+        if op.cliente:
+            chave, sugestoes = cli.buscar_existente(op.cliente, ex.clientes)
+            if chave is None:
+                ex.frases.append(replies.cliente_nao_achado(cli.nome_cliente(op.cliente), sugestoes))
+                return
+            c = ex.clientes[chave]
+            if c.saldo <= 0:
+                ex.frases.append(replies.nao_deve(c.nome))
+                return
+            ultimas = [(l.data_hora, fd.valor_da_divida(ex.fiado, l)) for l in fd.ultimas_dividas(ex.fiado, chave)]
+            ex.frases.append(replies.saldo_cliente(c.nome, c.saldo, c.divida_desde, ultimas))
+            return
+        lista = fd.devedores(ex.clientes, dias=op.dias, agora=ex.agora)
+        ex.frases.append(replies.devedores([(c.nome, c.saldo) for c in lista], fd.total(lista), op.dias))
+
+    # --- desfazer ---------------------------------------------------------------------------------------------
+
     def _desfazer(self, ex: _Execucao, op: Operacao) -> None:
+        f_desfeitos = fd.desfeitos(ex.fiado)
+        ultimo_f = next((l for l in reversed(ex.fiado)
+                         if l.tipo in ("pagamento", "perdao") and l.id not in f_desfeitos), None)
         desfeitos_l = {l.referencia for l in ex.lancamentos if l.tipo == "ajuste"}
         ultimo_l = next((l for l in reversed(ex.lancamentos)
                          if l.tipo in ("despesa", "retirada") and l.id not in desfeitos_l), None)
@@ -353,7 +697,17 @@ class Atendimento:
         ultimo_m = next((m for m in reversed(ex.movimentos) if m.tipo in (TipoMovimento.ENTRADA, TipoMovimento.SAIDA)
                          and m.whatsapp_msg_id not in desfeitos_m), None)
 
-        if ultimo_l and (ultimo_m is None or ultimo_l.data_hora >= ultimo_m.data_hora):
+        candidatos = [(c.data_hora, tipo) for c, tipo in ((ultimo_f, "fiado"), (ultimo_l, "lancamento"),
+                                                           (ultimo_m, "movimento")) if c is not None]
+        escolhido = max(candidatos, key=lambda c: c[0])[1] if candidatos else "movimento"
+
+        if escolhido == "fiado":
+            depois = ex.lancar_fiado(ultimo_f.cliente, ultimo_f.cliente_nome, "ajuste", -ultimo_f.valor,
+                                     referencia=ultimo_f.id)
+            ex.frases.append(replies.pagamento_desfeito(depois.nome, -ultimo_f.valor, depois.saldo, ultimo_f.tipo))
+            return
+
+        if escolhido == "lancamento":
             ajuste = desfazer_lancamento(ultimo_l, texto=ex.texto, msg_id=ex.msg_id, agora=ex.agora)
             ajuste.id = ex.proximo_id()
             ex.plano.lancamentos.append(ajuste)
@@ -364,13 +718,21 @@ class Atendimento:
             return
 
         r = inventory.desfazer(ex.movimentos, ex.estoque, texto=ex.texto, msg_id=ex.msg_id, agora=ex.agora)
+        extra = ""
         if r.ok:
             alvo = r.movimentos[0].referencia
             ex.gravar_resultado(r)
             ids = {m.id for m in ex.movimentos if m.whatsapp_msg_id == alvo}
             for pd in [pd for pd in ex.abertas if pd.movimento_ref in ids]:
                 ex.fechar(pd, "cancelada")
-        ex.frases.append(replies.montar(r))
+            for divida in fd.dividas_da_venda(ex.fiado, ids):
+                valor = fd.valor_da_divida(ex.fiado, divida)
+                depois = ex.lancar_fiado(divida.cliente, divida.cliente_nome, "ajuste", -valor,
+                                         movimento_ref=divida.movimento_ref, referencia=divida.id)
+                extra = " " + replies.fiado_estornado(depois.nome, depois.saldo)
+        ex.frases.append(replies.montar(r) + extra)
+
+    # --- sim, não, conversa ----------------------------------------------------------------------------------
 
     def _confirmar(self, ex: _Execucao, op: Operacao) -> None:
         pd = ex.buscar("confirmacao", op.pendencia_id)
@@ -378,7 +740,11 @@ class Atendimento:
             ex.frases.append(replies.NADA_PARA_CONFIRMAR)
             return
         ex.fechar(pd, "resolvida")
-        self._compra_venda(ex, Operacao.model_validate(pd.operacao), confirmado=True)
+        pendente = Operacao.model_validate(pd.operacao)
+        sugestao = pendente.campos.get("sugestao_cliente")
+        if sugestao:
+            pendente = pendente.model_copy(update={"cliente": sugestao, "campos": {}})
+        self._reexecutar(ex, pendente)
 
     def _cancelar(self, ex: _Execucao, op: Operacao) -> None:
         pd = None
@@ -402,8 +768,9 @@ class Atendimento:
         if pergunta and frases:
             frases = [f.replace(SUFIXO_DESFAZER, "") for f in frases]
         texto = " ".join([*frases, pergunta]).strip()
-        return Saida(plano=ex.plano, texto=texto or ("Não entendi. " + replies.AJUDA), pergunta=pergunta,
-                     resumo=ex.resumo)
+        if not texto and not ex.pedidos:
+            texto = "Não entendi. " + replies.AJUDA
+        return Saida(plano=ex.plano, texto=texto, pergunta=pergunta, resumo=ex.resumo, pedidos=ex.pedidos)
 
     # --- descrição de operação para perguntas -----------------------------------------------------------
 

@@ -26,6 +26,9 @@ class TipoOperacao(str, Enum):
     CORRIGIR = "corrigir"  # muda um dado de uma anotação já feita
     CONSULTA = "consulta"
     DESFAZER = "desfazer"
+    RECEBIMENTO = "recebimento"  # cliente pagou (parte d)o fiado
+    PERDOAR = "perdoar"  # esquecer a dívida de um cliente
+    CONFIGURAR = "configurar"  # o comerciante muda uma preferência dele (horário do fechamento...)
     CONFIRMAR = "confirmar"  # "sim" para uma pergunta de confirmação
     CANCELAR = "cancelar"  # "não", "deixa pra lá", "não sei o valor"
     CONVERSA = "conversa"  # cumprimento, dúvida, qualquer outra coisa
@@ -40,9 +43,35 @@ class Operacao(BaseModel):
     pendencia_id: int | None = None  # completar, confirmar, cancelar
     movimento_ref: str | None = None  # corrigir: "ultimo" ou o id de um movimento do contexto
     campos: dict[str, Any] = Field(default_factory=dict)  # completar/corrigir: os dados novos
-    assunto: str | None = None  # consulta: "estoque" (padrão) ou "gastos"
-    periodo: str | None = None  # consulta de gastos: "hoje", "semana", "mes"
+    assunto: str | None = None  # consulta: "estoque" (padrão), "gastos", "caixa" ou "fiado"
+    periodo: str | None = None  # consulta de gastos/caixa: "hoje", "ontem", "semana", "mes", "dia:3", "mes:10"...
+    formato: str | None = None  # consulta de caixa: resumo | itens | por_dia | grafico | planilha
+    forma_pagamento: str | None = None  # compra, venda, despesa, recebimento: como foi pago (só se foi falado)
+    cliente: str | None = None  # venda fiado, recebimento, perdoar, consulta de fiado
+    tudo: bool = False  # recebimento: "acertou tudo", "pagou o que devia"
+    dias: int | None = None  # consulta de fiado: "quem deve há mais de 30 dias"
     confianca: float = 1.0
+
+    @field_validator("forma_pagamento", mode="before")
+    @classmethod
+    def _forma(cls, valor):
+        from app.domain.pagamento import NAO_INFORMADO, normalizar_pagamento
+
+        forma = normalizar_pagamento(valor)
+        return None if forma in (None, NAO_INFORMADO) else forma
+
+    @field_validator("tudo", mode="before")
+    @classmethod
+    def _tudo(cls, valor):
+        return bool(valor)
+
+    @field_validator("dias", mode="before")
+    @classmethod
+    def _dias(cls, valor):
+        try:
+            return int(float(valor)) if valor not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
 
     @field_validator("valor", mode="before")
     @classmethod
@@ -89,6 +118,8 @@ ESPEC: dict[TipoOperacao, Especificacao] = {
     TipoOperacao.VENDA: Especificacao(obrigatorios=("produto", "quantidade"), desejaveis=("valor",)),
     TipoOperacao.DESPESA: Especificacao(obrigatorios=("valor",), desejaveis=("categoria",)),
     TipoOperacao.RETIRADA: Especificacao(obrigatorios=("valor",)),
+    TipoOperacao.RECEBIMENTO: Especificacao(obrigatorios=("cliente", "valor")),
+    TipoOperacao.PERDOAR: Especificacao(obrigatorios=("cliente",)),
     TipoOperacao.COMPLETAR: Especificacao(obrigatorios=("campos",)),
     TipoOperacao.CORRIGIR: Especificacao(obrigatorios=("movimento_ref", "campos")),
 }

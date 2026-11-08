@@ -117,3 +117,63 @@ def test_falha_de_entrega_marca_erro(fabrica_pg):
     with transacao(fabrica_pg) as s:
         linha = s.scalar(select(MensagemDB))
         assert (linha.status, linha.erro_entrega_json) == ("erro", [{"code": 130497}])
+
+
+# --- F6: meio de pagamento e fiado no banco --------------------------------------------------------------
+
+def _fiado(cliente, **extra):
+    return {"forma_pagamento": "fiado", "cliente": cliente, **extra}
+
+
+def test_fiado_no_banco_saldo_igual_ao_livro(fabrica_pg):
+    from sqlalchemy import func
+
+    from app.db.modelos import ClienteDB, FiadoLancamentoDB
+
+    c = ConversaPg(fabrica_pg)
+    c.fala("comprei 20 kg de arroz por 100", compra("arroz", 20, valor_total=100))
+    assert c.fala("vendi 2 kg de arroz fiado", venda("arroz", 2, valor_total=12) | {"forma_pagamento": "fiado"}) \
+        == "Fiado pra quem?"
+    assert "Fiado para João, que agora deve 12 reais." in c.fala("pro João", completar(cliente="João"))
+    c.fala("vendi 1 kg de arroz no pix por 7", venda("arroz", 1, valor_total=7) | {"forma_pagamento": "pix"})
+    c.fala("o João pagou 5 no pix", {"tipo": "recebimento", "cliente": "João", "valor": 5, "forma_pagamento": "pix"})
+    c.fala("desfazer", {"tipo": "desfazer"})  # desfaz o pagamento
+    c.fala("vendi 1 kg de arroz fiado pra Maria por 6", venda("arroz", 1, valor_total=6) | _fiado("Maria"))
+
+    estado = c.loja.carregar_estado("2026-10-29 11:00:00")
+    assert {k: v.saldo for k, v in estado.clientes.items()} == {"joao": Decimal("12.00"), "maria": Decimal("6.00")}
+    assert estado.clientes["joao"].divida_desde.startswith("2026-10-29")
+    assert [l.tipo for l in estado.fiado] == ["divida", "pagamento", "ajuste", "divida"]
+    assert estado.fiado[2].referencia == estado.fiado[1].id  # o desfazer aponta para o pagamento
+    assert estado.fiado[0].movimento_ref == "wamid.3-0"
+    pix = next(m for m in estado.movimentos if m.forma_pagamento == "pix")
+    assert pix.forma_pagamento_origem == "dito" and pix.custo_unitario == Decimal("5.0000")
+
+    with transacao(fabrica_pg) as s:
+        for cli in s.scalars(select(ClienteDB)):
+            soma = s.scalar(select(func.sum(FiadoLancamentoDB.valor)).where(FiadoLancamentoDB.cliente_id == cli.id))
+            assert cli.saldo_devedor == soma
+
+
+def test_fiado_idempotente_quando_a_fila_repete(fabrica_pg):
+    from app.db.modelos import FiadoLancamentoDB
+
+    c = ConversaPg(fabrica_pg)
+    c.fala("comprei 20 kg de arroz por 100", compra("arroz", 20, valor_total=100))
+    c.fala("vendi fiado pro João", venda("arroz", 2, valor_total=12) | _fiado("João"))
+    c.loja.gravar(c.ultimo_plano)  # a fila entregou a mesma mensagem de novo
+    estado = c.loja.carregar_estado("2026-10-29 11:00:00")
+    assert estado.clientes["joao"].saldo == Decimal("12.00")
+    with transacao(fabrica_pg) as s:
+        assert len(s.scalars(select(FiadoLancamentoDB)).all()) == 1
+
+
+def test_mudar_meio_guarda_historico(fabrica_pg):
+    c = ConversaPg(fabrica_pg)
+    c.fala("comprei 20 kg de arroz por 100", compra("arroz", 20, valor_total=100))
+    c.fala("vendi 2 kg de arroz por 12 no pix", venda("arroz", 2, valor_total=12) | {"forma_pagamento": "pix"})
+    c.fala("foi no cartão", {"tipo": "corrigir", "movimento_ref": "ultimo", "campos": {"forma_pagamento": "cartao"}})
+    with transacao(fabrica_pg) as s:
+        m = s.scalar(select(MovimentoDB).where(MovimentoDB.origem_id == "wamid.2-0"))
+        assert m.forma_pagamento == "cartao"
+        assert m.historico_json[0]["forma_pagamento"] == "pix"

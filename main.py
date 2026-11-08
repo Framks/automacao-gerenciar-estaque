@@ -4,6 +4,8 @@
 - POST /api/webhook : recebe mensagens, valida, descarta duplicadas e enfileira (responde 200 rápido)
 - POST /api/worker  : chamado pelo QStash; roda o pipeline completo
 - POST /api/tarefas/limpeza : agendado no QStash; expira pendências e aplica a retenção das mensagens
+- POST /api/tarefas/fechamento : agendado no QStash (a cada 15 min); publica o fechamento de quem está na hora
+- POST /api/tarefas/fechamento/enviar : chamado pelo QStash; manda o fechamento de um comerciante
 """
 
 import logging
@@ -202,3 +204,33 @@ async def limpeza(request: Request):
     apagadas = mensagens.limpar(settings.retencao_mensagens_dias)
     log.info("limpeza: %d pendências expiradas, %d mensagens apagadas", expiradas, apagadas)
     return {"ok": True, "pendencias_expiradas": expiradas, "mensagens_apagadas": apagadas}
+
+
+def _assinada(request: Request, corpo: str, caminho: str) -> bool:
+    url = get_settings().base_url + caminho
+    return container.verificador_qstash().valido(corpo, request.headers.get("Upstash-Signature"), url)
+
+
+@app.post("/api/tarefas/fechamento")
+async def fechamento_agendar(request: Request):
+    """A cada 15 min: quem tem o fechamento do caixa agora recebe (uma tarefa por comerciante)."""
+    corpo = (await request.body()).decode()
+    if not _assinada(request, corpo, "/api/tarefas/fechamento"):
+        return Response(status_code=401)
+    resultado = container.fechamento().agendar()
+    log.info("fechamento: %s", resultado)
+    return {"ok": True, **resultado}
+
+
+@app.post("/api/tarefas/fechamento/enviar")
+async def fechamento_enviar(request: Request):
+    corpo = (await request.body()).decode()
+    if not _assinada(request, corpo, "/api/tarefas/fechamento/enviar"):
+        return Response(status_code=401)
+    tarefa = await request.json()
+    try:
+        status = container.fechamento().enviar(int(tarefa["comerciante_id"]), tarefa["tipo"], tarefa["referencia"])
+    except Exception:
+        log.exception("fechamento do comerciante %s falhou", tarefa.get("comerciante_id"))
+        return Response(status_code=503)  # o QStash tenta de novo (a reserva libera depois de "erro")
+    return {"ok": True, "status": status}

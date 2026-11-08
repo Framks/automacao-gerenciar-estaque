@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.engine import transacao
 from app.db.modelos import ConfiguracaoDB, FeatureFlagDB
 from app.domain.financeiro import CATEGORIAS
+from app.domain.pagamento import FORMAS, NAO_INFORMADO
 
 log = logging.getLogger(__name__)
 
@@ -66,9 +67,27 @@ class Definicao:
                 if not isinstance(valor, list) or not all(isinstance(x, str) and x.strip() for x in valor):
                     raise ValueError
                 v = [x.strip() for x in valor]
+                if self.opcoes and any(x not in self.opcoes for x in v):
+                    raise ConfiguracaoInvalida(f"opção inválida em {v} (opções: {', '.join(self.opcoes)})")
+            elif self.tipo == "texto":  # pode ser vazio
+                v = "" if valor is None else str(valor).strip()
+            elif self.tipo == "horario":  # "" (desligado) ou HH:MM em intervalos de 15 minutos
+                v = "" if valor is None else str(valor).strip()
+                if v:
+                    h, m = v.split(":")
+                    if not (0 <= int(h) <= 23 and int(m) in (0, 15, 30, 45) and len(m) == 2):
+                        raise ValueError
+                    v = f"{int(h):02d}:{m}"
+            elif self.tipo == "fuso":
+                from zoneinfo import ZoneInfo
+
+                v = str(valor).strip()
+                ZoneInfo(v)
             else:
                 raise ValueError
-        except (TypeError, ValueError, ArithmeticError):
+        except ConfiguracaoInvalida:
+            raise
+        except (TypeError, ValueError, ArithmeticError, LookupError):
             raise ConfiguracaoInvalida(f"valor inválido para {self.tipo}: {valor!r}") from None
         if self.minimo is not None and v < self.minimo or self.maximo is not None and v > self.maximo:
             raise ConfiguracaoInvalida(f"fora do intervalo [{self.minimo}, {self.maximo}]: {v}")
@@ -93,7 +112,25 @@ DEFINICOES: dict[str, Definicao] = {
     "retencao_mensagens_dias": Definicao("int", 90, "Dias que as mensagens ficam guardadas", 7, 3650,
                                          por_comerciante=False),
     "categorias_despesa": Definicao("list", list(CATEGORIAS), "Categorias de despesa aceitas"),
+    "contexto_max_clientes": Definicao("int", 20, "Nomes de clientes do fiado enviados à IA", 0, 100),
+    "formas_pagamento": Definicao("list", list(FORMAS), "Meios de pagamento aceitos (o bot pergunta entre eles)",
+                                  opcoes=FORMAS),
+    "pagamento_padrao": Definicao("enum", NAO_INFORMADO, "Meio anotado quando a venda não diz como foi paga",
+                                  opcoes=(NAO_INFORMADO, "dinheiro", "pix", "cartao")),
+    "fuso_horario": Definicao("fuso", "America/Fortaleza", "Fuso do comerciante (dias do relatório e fechamento)"),
+    "fechamento_diario_horario": Definicao("horario", "", "Horário do fechamento do dia (vazio = desligado)"),
+    "fechamento_mensal": Definicao("bool", False, "Mandar o fechamento do mês anterior no dia 1"),
+    "fechamento_formato": Definicao("enum", "resumo", "Formato do fechamento do dia", opcoes=("resumo", "itens")),
+    "fechamento_dia_vazio": Definicao("bool", True, "Mandar o fechamento mesmo sem movimento no dia"),
+    "fechamento_mensal_grafico": Definicao("bool", True, "Mandar o gráfico junto do fechamento do mês"),
+    "fechamento_template": Definicao("texto", "", "Template aprovado na Meta para o fechamento fora da janela "
+                                                  "de 24h (vazio = só manda dentro da janela)", por_comerciante=False),
+    "fechamento_template_idioma": Definicao("str", "pt_BR", "Idioma do template do fechamento",
+                                            por_comerciante=False),
 }
+
+# o que o próprio comerciante pode mudar pela conversa (operação "configurar"); o resto é só pelo admin
+CONFIG_DO_COMERCIANTE = ("fechamento_diario_horario", "fechamento_mensal", "fechamento_formato", "pagamento_padrao")
 
 
 @dataclass(frozen=True)
@@ -108,6 +145,9 @@ FLAGS: dict[str, DefinicaoFlag] = {
     "confirmacao_ambiguidade": DefinicaoFlag(True, "Confirmar antes de gravar quando houver dúvida"),
     "despesas": DefinicaoFlag(True, "Anotar despesas e retiradas do caixa"),
     "resposta_em_audio": DefinicaoFlag(True, "Responder também em áudio (desligado: só texto)"),
+    "fiado": DefinicaoFlag(True, "Anotar vendas fiado, pagamentos e dívidas de clientes"),
+    "perguntar_pagamento": DefinicaoFlag(False, "Perguntar o meio de pagamento quando a venda não disser"),
+    "fechamento_automatico": DefinicaoFlag(True, "Mandar o fechamento do caixa no horário escolhido"),
 }
 
 

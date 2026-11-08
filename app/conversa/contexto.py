@@ -29,6 +29,7 @@ class LimitesContexto:
     janela_horas: int = 2
     max_produtos: int = 40
     max_movimentos: int = 5
+    max_clientes: int = 20
 
 
 @dataclass
@@ -38,6 +39,7 @@ class Contexto:
     pendencias: list[dict] = field(default_factory=list)
     produtos: list[dict] = field(default_factory=list)
     ultimos_movimentos: list[dict] = field(default_factory=list)
+    clientes_fiado: list[str] = field(default_factory=list)  # nomes de quem deve (para acertar o nome falado)
 
     def para_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":"))
@@ -75,10 +77,13 @@ def montar(texto: str, estado: EstadoConversa, historico: list[MensagemHistorico
         "unidade": m.unidade, "valor_total": _num(m.valor_total), "quando": m.data_hora,
     } for m in estado.movimentos if m.tipo != TipoMovimento.AJUSTE_VALOR][-limites.max_movimentos:]
 
+    # só os nomes (o saldo não ajuda a interpretar): quem deve primeiro, depois quem mexeu por último
+    clientes = sorted(estado.clientes.values(), key=lambda c: (c.saldo > 0, c.atualizado_em or ""), reverse=True)
     return Contexto(
         agora=agora,
         historico=[{"de": h.de, "texto": h.texto} for h in recentes],
         pendencias=pendencias,
         produtos=produtos,
         ultimos_movimentos=movimentos,
+        clientes_fiado=[c.nome for c in clientes][:limites.max_clientes],
     )

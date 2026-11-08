@@ -16,6 +16,18 @@ class Fila:
         self._client.message.publish_json(url=self._worker_url, body=job, retries=3)
 
 
+class FilaTarefas:
+    """Publica tarefas internas (ex.: o envio do fechamento de um comerciante) numa URL fixa."""
+
+    def __init__(self, token: str, url: str, base_url: str | None = None):
+        self._client = QStash(token, base_url=base_url or None)
+        self._url = url
+
+    def publicar(self, tarefa: dict, deduplicacao: str | None = None) -> None:
+        extra = {"deduplication_id": deduplicacao} if deduplicacao else {}
+        self._client.message.publish_json(url=self._url, body=tarefa, retries=3, **extra)
+
+
 class VerificadorQStash:
     def __init__(self, current_signing_key: str, next_signing_key: str):
         self._receiver = Receiver(current_signing_key=current_signing_key, next_signing_key=next_signing_key)

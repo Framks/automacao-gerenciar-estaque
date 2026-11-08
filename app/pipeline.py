@@ -6,16 +6,18 @@ A IA só interpreta; o motor da conversa (app/conversa/atendimento.py) decide o 
 
 import logging
 from collections.abc import Callable
-from datetime import datetime, timedelta
-from typing import Protocol
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from app.conversa.atendimento import Atendimento
 from app.conversa.contexto import LimitesContexto, MensagemHistorico, montar
 from app.conversa.loja import Loja
-from app.conversa.modelos import Parametros
+from app.conversa.modelos import Anexo, Parametros, PedidoRelatorio, RespostaRelatorio
 from app.domain import replies
 from app.domain.models import Comerciante
+from app.domain.operacoes import Operacao, RespostaLLM, TipoOperacao
 from app.errors import ServicoIndisponivel
 from app.fila.controle import Controle
 from app.llm.interpreter import PROMPT_VERSAO, Interpreter
@@ -40,6 +42,29 @@ class Mensagens(Protocol):
     def historico(self, comerciante_id: int, desde: str, limite: int = 6) -> list[MensagemHistorico]: ...
 
 
+class Relatorios(Protocol):
+    def montar(self, pedido: PedidoRelatorio, hoje: date) -> RespostaRelatorio: ...
+
+
+@dataclass
+class Resposta:
+    texto: str
+    fala: str = ""
+    anexos: list[Anexo] = field(default_factory=list)
+
+
+PREFIXO_BOTAO_CAIXA = "caixa|"  # payload do botão "Ver detalhes" do fechamento: caixa|<periodo>|<formato>
+
+
+def operacao_do_botao(payload: str | None) -> RespostaLLM | None:
+    """Botão do template de fechamento: vira a consulta do caixa sem passar pela IA."""
+    if not payload or not payload.startswith(PREFIXO_BOTAO_CAIXA):
+        return None
+    _, periodo, formato = (payload.split("|") + ["", ""])[:3]
+    return RespostaLLM(operacoes=[Operacao(tipo=TipoOperacao.CONSULTA, assunto="caixa", periodo=periodo or None,
+                                           formato=formato or None)])
+
+
 def _erro_curto(e: BaseException) -> str:
     return f"{type(e).__name__}: {str(e)[:300]}"
 
@@ -60,6 +85,9 @@ class Pipeline:
         limites: Callable[[Comerciante], LimitesContexto] = lambda c: LimitesContexto(),
         resposta_em_audio: Callable[[Comerciante], bool] = lambda c: True,
         tts_de: Callable[[Comerciante], TextToSpeech] | None = None,
+        relatorios: Callable[[Comerciante], Relatorios] | None = None,
+        configurar: Callable[[Comerciante, dict[str, Any]], None] | None = None,
+        aviso: Callable[[Comerciante], str] | None = None,
     ):
         self._wa = whatsapp
         self._stt = stt
@@ -74,6 +102,9 @@ class Pipeline:
         self._parametros = parametros
         self._limites = limites
         self._resposta_em_audio = resposta_em_audio
+        self._relatorios = relatorios
+        self._configurar = configurar
+        self._aviso = aviso
 
     def processar(self, msg: MensagemRecebida) -> None:
         """Processa uma mensagem. Lança ServicoIndisponivel quando vale a pena a fila tentar de novo."""
@@ -112,13 +143,14 @@ class Pipeline:
                 return
 
             if novo:
-                resposta = f"{replies.boas_vindas(comerciante.nome)} {resposta}"
-            self._responder(comerciante, mid, resposta, cron)
+                resposta.texto = f"{replies.boas_vindas(comerciante.nome)} {resposta.texto}"
+                resposta.fala = f"{replies.boas_vindas(comerciante.nome)} {resposta.fala}"
+            self._responder(comerciante, mid, resposta.texto, cron, resposta.fala, resposta.anexos)
             self._anotar(mid, tempos_json=cron.tempos)
             log.info("processado tel=%s tempos=%s total=%.2fs", mascarar(msg.telefone), cron.tempos, cron.total)
 
     def _processar(self, msg: MensagemRecebida, comerciante: Comerciante, mid: int, cron: Cronometro,
-                   agora: str) -> str:
+                   agora: str) -> Resposta:
         if msg.tipo == "audio":
             with cron.etapa("download_midia"):
                 audio = self._wa.baixar_midia(msg.media_id)
@@ -135,8 +167,10 @@ class Pipeline:
             historico = self._mensagens.historico(comerciante.id, desde, limites.max_mensagens)
             contexto = montar(texto, estado, historico, agora, limites)
 
-        with cron.etapa("interpretacao"):
-            entendido = self._interpreter.interpretar(texto, contexto)
+        entendido = operacao_do_botao(msg.payload)
+        if entendido is None:
+            with cron.etapa("interpretacao"):
+                entendido = self._interpreter.interpretar(texto, contexto)
 
         with cron.etapa("dominio"):
             saida = Atendimento(self._parametros(comerciante)).processar(
@@ -144,21 +178,48 @@ class Pipeline:
 
         with cron.etapa("banco"):
             loja.gravar(saida.plano, mid)
+            if saida.plano.configuracoes and self._configurar:
+                self._configurar(comerciante, saida.plano.configuracoes)
         # marcado logo depois do commit: se o envio falhar e a fila repetir, não grava duas vezes
         self._controle.marcar_processada(msg.msg_id)
         self._anotar(mid, status="processada", transcricao=texto, tempos_json=cron.tempos, intencao_json={
             "prompt": PROMPT_VERSAO, "operacoes": entendido.model_dump(mode="json")["operacoes"],
             "resultado": saida.resumo, "pergunta": saida.pergunta,
+            "relatorios": [{"periodo": p.periodo, "formato": p.formato} for p in saida.pedidos],
         })
-        return saida.texto
 
-    def _responder(self, comerciante: Comerciante, mid: int, texto: str, cron: Cronometro) -> None:
+        textos = [saida.texto] if saida.texto else []
+        falas = list(textos)
+        anexos: list[Anexo] = []
+        if saida.pedidos and self._relatorios is not None:
+            with cron.etapa("relatorio"):
+                servico = self._relatorios(comerciante)
+                hoje = datetime.strptime(agora, FORMATO).date()
+                for pedido in saida.pedidos:
+                    r = servico.montar(pedido, hoje)
+                    textos.append(r.texto)
+                    falas.append(r.fala or r.texto)
+                    anexos += r.anexos
+        if self._aviso is not None:
+            try:
+                aviso = self._aviso(comerciante)
+            except Exception:
+                log.exception("não consegui montar o aviso para o comerciante")
+                aviso = ""
+            if aviso:
+                textos.append(aviso)
+                falas.append(aviso)
+        texto_final = "\n\n".join(textos) or ("Não entendi. " + replies.AJUDA)
+        return Resposta(texto_final, " ".join(falas) or texto_final, anexos)
+
+    def _responder(self, comerciante: Comerciante, mid: int, texto: str, cron: Cronometro, fala: str = "",
+                   anexos: list[Anexo] | None = None) -> None:
         telefone = comerciante.telefone
         if self._resposta_em_audio(comerciante):
             try:
                 tts = self._tts_de(comerciante) if self._tts_de else self._tts
                 with cron.etapa("tts"):
-                    audio = tts.sintetizar(texto)
+                    audio = tts.sintetizar(fala or texto)
                 with cron.etapa("envio_audio"):
                     wa_id = self._wa.enviar_audio(telefone, audio)
                 self._registrar_saida(comerciante, mid, "audio", texto, wa_id)
@@ -172,6 +233,19 @@ class Pipeline:
         except Exception as e:
             log.exception("falha ao enviar texto para %s", mascarar(telefone))
             self._registrar_saida(comerciante, mid, "text", texto, None, _erro_curto(e))
+        for anexo in anexos or []:
+            descricao = anexo.legenda or anexo.nome
+            try:
+                with cron.etapa("envio_anexo"):
+                    if anexo.tipo == "image":
+                        wa_id = self._wa.enviar_imagem(telefone, anexo.conteudo, anexo.mime, anexo.legenda)
+                    else:
+                        wa_id = self._wa.enviar_documento(telefone, anexo.conteudo, anexo.nome, anexo.mime,
+                                                          anexo.legenda)
+                self._registrar_saida(comerciante, mid, anexo.tipo, descricao, wa_id)
+            except Exception as e:
+                log.exception("falha ao enviar %s para %s", anexo.tipo, mascarar(telefone))
+                self._registrar_saida(comerciante, mid, anexo.tipo, descricao, None, _erro_curto(e))
 
     def _anotar(self, mid: int, **campos) -> None:
         try:

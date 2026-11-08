@@ -96,11 +96,19 @@ def parametros_de(cfg, comerciante_id):
         valor_limite=Decimal(str(cfg.get("confirmacao_valor_limite", comerciante_id))),
         pendencia_validade_horas=int(cfg.get("pendencia_validade_horas", comerciante_id)),
         categorias_despesa=tuple(cfg.get("categorias_despesa", comerciante_id)),
+        fiado=cfg.ligada("fiado", comerciante_id),
+        perguntar_pagamento=cfg.ligada("perguntar_pagamento", comerciante_id),
+        pagamento_padrao=cfg.get("pagamento_padrao", comerciante_id),
+        formas_pagamento=tuple(cfg.get("formas_pagamento", comerciante_id)),
+        fechamento_horario=cfg.get("fechamento_diario_horario", comerciante_id),
+        fechamento_mensal=bool(cfg.get("fechamento_mensal", comerciante_id)),
+        fechamento_formato=cfg.get("fechamento_formato", comerciante_id),
     )
     limites = LimitesContexto(
         max_mensagens=int(cfg.get("contexto_max_mensagens", comerciante_id)),
         janela_horas=int(cfg.get("contexto_janela_horas", comerciante_id)),
         max_produtos=int(cfg.get("contexto_max_produtos", comerciante_id)),
+        max_clientes=int(cfg.get("contexto_max_clientes", comerciante_id)),
     )
     return parametros, limites
 
@@ -118,7 +126,7 @@ def pipeline() -> Pipeline:
         interpreter=GroqInterpreter(s.groq_api_key, lambda: cfg.get("groq_model")),
         tts=EdgeTTS(s.tts_voice),
         tenants=comerciantes(),
-        loja=lambda c: PgLoja(f, c.id, s.timezone),
+        loja=lambda c: PgLoja(f, c.id, fuso_de(c.id)),
         mensagens=mensagens(),
         controle=controle(),
         timezone=s.timezone,
@@ -126,4 +134,55 @@ def pipeline() -> Pipeline:
         limites=lambda c: parametros_de(cfg, c.id)[1],
         resposta_em_audio=lambda c: cfg.ligada("resposta_em_audio", c.id),
         tts_de=lambda c: EdgeTTS(cfg.get("tts_voz", c.id), cfg.get("tts_velocidade", c.id)),
+        relatorios=lambda c: relatorios_de(c.id),
+        configurar=lambda c, valores: configurar_pelo_comerciante(cfg, c.id, valores),
+        aviso=lambda c: fechamento().aviso_pendente(c.id),
     )
+
+
+def fuso_de(comerciante_id: int) -> str:
+    try:
+        return configuracoes().get("fuso_horario", comerciante_id)
+    except Exception:
+        return get_settings().timezone
+
+
+def relatorios_de(comerciante_id: int):
+    from app.servicos.graficos import desenhar
+    from app.servicos.relatorios import ServicoRelatorios
+    from app.storage.pg_conversa import PgLoja
+
+    fuso = fuso_de(comerciante_id)
+    return ServicoRelatorios(PgLoja(_fabrica(), comerciante_id, fuso), fuso, grafico=desenhar)
+
+
+def configurar_pelo_comerciante(cfg, comerciante_id: int, valores: dict) -> None:
+    """Grava as preferências que o comerciante mudou pela conversa (só as chaves permitidas)."""
+    from app.servicos.configuracoes import CONFIG_DO_COMERCIANTE
+
+    for chave, valor in valores.items():
+        if chave in CONFIG_DO_COMERCIANTE:
+            cfg.definir(chave, valor, comerciante_id, autor="whatsapp")
+
+
+@lru_cache
+def fechamento():
+    from app.servicos.fechamento import Fechamento
+
+    s = get_settings()
+    return Fechamento(
+        fabrica=_fabrica(), configuracoes=configuracoes(),
+        whatsapp=WhatsAppCloudClient(s.whatsapp_token, s.whatsapp_phone_number_id, s.graph_api_version),
+        mensagens=mensagens(), relatorios=relatorios_de, fila=fila_tarefas(), fuso_padrao=s.timezone,
+    )
+
+
+@lru_cache
+def fila_tarefas():
+    """Fan-out do fechamento: uma mensagem do QStash por comerciante (None = processa na hora)."""
+    from app.fila.qstash import FilaTarefas
+
+    s = get_settings()
+    if not s.qstash_token or s.processar_sem_fila:
+        return None
+    return FilaTarefas(s.qstash_token, s.base_url + "/api/tarefas/fechamento/enviar", s.qstash_url)
