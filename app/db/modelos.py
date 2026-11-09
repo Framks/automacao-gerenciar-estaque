@@ -4,13 +4,14 @@ Convenções: ids bigint identity, tempos timestamptz (UTC), dinheiro numeric(14
 custo e valor unitário numeric(14,4). O livro-caixa (movimentos, lancamentos_financeiros) só recebe linhas novas.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Identity,
@@ -79,6 +80,8 @@ class MovimentoDB(Base):
     __tablename__ = "movimentos"
     __table_args__ = (
         CheckConstraint("tipo IN ('entrada', 'saida', 'ajuste', 'ajuste_valor')", name="ck_movimentos_tipo"),
+        CheckConstraint("forma_pagamento IN ('dinheiro', 'pix', 'cartao', 'fiado', 'nao_informado')",
+                        name="ck_movimentos_forma_pagamento"),
         UniqueConstraint("comerciante_id", "origem_id", name="uq_movimentos_origem"),
         Index("ix_movimentos_comerciante_criado", "comerciante_id", "criado_em"),
         Index("ix_movimentos_wa_msg", "comerciante_id", "wa_msg_id"),
@@ -101,6 +104,10 @@ class MovimentoDB(Base):
     referencia_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("movimentos.id"))  # ajuste_valor
     autor: Mapped[str] = mapped_column(Text, nullable=False, server_default="")  # "" = bot; admin: e-mail
     motivo: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    forma_pagamento: Mapped[str] = mapped_column(String(14), nullable=False, server_default="nao_informado")
+    forma_pagamento_origem: Mapped[str] = mapped_column(String(8), nullable=False, server_default="")
+    custo_unitario: Mapped[Decimal | None] = mapped_column(UNITARIO)  # saída: custo médio na hora da venda
+    historico_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     criado_em: Mapped[datetime] = _criado_em()
 
 
@@ -138,6 +145,7 @@ class MensagemDB(Base):
 
     id: Mapped[int] = _id()
     comerciante_id: Mapped[int | None] = _comerciante_fk(nullable=True)
+    telefone_mascarado: Mapped[str] = mapped_column(String(20), nullable=False, server_default="")  # 5588****1891
     direcao: Mapped[str] = mapped_column(String(8), nullable=False)
     wa_msg_id: Mapped[str | None] = mapped_column(Text, unique=True)
     tipo: Mapped[str] = mapped_column(String(10), nullable=False, server_default="text")  # audio | text | image
@@ -234,3 +242,71 @@ class AuditoriaDB(Base):
     entidade_id: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     diff_json: Mapped[dict | None] = mapped_column(JSONB)
     criado_em: Mapped[datetime] = _criado_em()
+
+
+class ClienteDB(Base):
+    """Cliente do fiado. `saldo_devedor` é cache da soma de fiado_lancamentos (atualizado na mesma transação)."""
+
+    __tablename__ = "clientes"
+    __table_args__ = (UniqueConstraint("comerciante_id", "chave", name="uq_clientes_comerciante_chave"),)
+
+    id: Mapped[int] = _id()
+    comerciante_id: Mapped[int] = _comerciante_fk()
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    chave: Mapped[str] = mapped_column(Text, nullable=False)  # clientes.chave_cliente(nome)
+    telefone: Mapped[str] = mapped_column(String(20), nullable=False, server_default="")
+    saldo_devedor: Mapped[Decimal] = mapped_column(DINHEIRO, nullable=False, server_default="0")
+    divida_desde: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    criado_em: Mapped[datetime] = _criado_em()
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FiadoLancamentoDB(Base):
+    """Livro do fiado: só recebe linhas novas (dívida +, pagamento −, perdão −, ajuste ±)."""
+
+    __tablename__ = "fiado_lancamentos"
+    __table_args__ = (
+        CheckConstraint("tipo IN ('divida', 'pagamento', 'ajuste', 'perdao')", name="ck_fiado_tipo"),
+        UniqueConstraint("comerciante_id", "origem_id", name="uq_fiado_origem"),
+        Index("ix_fiado_comerciante_criado", "comerciante_id", "criado_em"),
+        Index("ix_fiado_cliente", "cliente_id"),
+    )
+
+    id: Mapped[int] = _id()
+    comerciante_id: Mapped[int] = _comerciante_fk()
+    cliente_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("clientes.id", ondelete="CASCADE"), nullable=False)
+    origem_id: Mapped[str] = mapped_column(Text, nullable=False)
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False)
+    valor: Mapped[Decimal] = mapped_column(DINHEIRO, nullable=False)
+    movimento_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("movimentos.id", ondelete="SET NULL"))
+    forma_pagamento: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    texto: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    wa_msg_id: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    referencia_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("fiado_lancamentos.id"))
+    autor: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    criado_em: Mapped[datetime] = _criado_em()
+
+
+class FechamentoDB(Base):
+    """Cada fechamento automático enviado (ou tentado). O UNIQUE garante um envio por dia/mês."""
+
+    __tablename__ = "fechamentos"
+    __table_args__ = (
+        CheckConstraint("tipo IN ('diario', 'mensal')", name="ck_fechamentos_tipo"),
+        CheckConstraint("status IN ('enviando', 'enviado', 'sem_janela', 'vazio', 'erro')",
+                        name="ck_fechamentos_status"),
+        UniqueConstraint("comerciante_id", "tipo", "referencia", name="uq_fechamentos"),
+    )
+
+    id: Mapped[int] = _id()
+    comerciante_id: Mapped[int] = _comerciante_fk()
+    tipo: Mapped[str] = mapped_column(String(8), nullable=False)
+    referencia: Mapped[date] = mapped_column(Date, nullable=False)  # o dia (diário) ou o dia 1 do mês (mensal)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, server_default="enviando")
+    canal: Mapped[str] = mapped_column(String(10), nullable=False, server_default="")  # texto | template
+    wa_msg_id: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    erro: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    tentativas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    avisado: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    criado_em: Mapped[datetime] = _criado_em()
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

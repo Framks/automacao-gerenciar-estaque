@@ -22,9 +22,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.engine import transacao
 from app.db.modelos import (
+    ClienteDB,
     ComercianteDB,
     ConfiguracaoDB,
     FeatureFlagDB,
+    FiadoLancamentoDB,
     LancamentoDB,
     MensagemDB,
     MovimentoDB,
@@ -114,7 +116,8 @@ def _q_movimentos(f: Filtro, tz) -> Select:
     ref = MovimentoDB.__table__.alias("ref")
     q = select(MovimentoDB.criado_em, MovimentoDB.tipo, MovimentoDB.produto, MovimentoDB.quantidade,
                MovimentoDB.unidade, MovimentoDB.valor_unitario, MovimentoDB.valor_total,
-               MovimentoDB.referencia_msg, ref.c.origem_id, MovimentoDB.autor, MovimentoDB.motivo, MovimentoDB.texto) \
+               MovimentoDB.referencia_msg, ref.c.origem_id, MovimentoDB.autor, MovimentoDB.motivo, MovimentoDB.texto,
+               MovimentoDB.forma_pagamento, MovimentoDB.custo_unitario) \
         .outerjoin(ref, ref.c.id == MovimentoDB.referencia_id).order_by(MovimentoDB.criado_em, MovimentoDB.id)
     return _periodo(_do_comerciante(q, MovimentoDB.comerciante_id, f), MovimentoDB.criado_em, f, tz)
 
@@ -124,6 +127,20 @@ def _q_caixa(f: Filtro, tz) -> Select:
                LancamentoDB.valor, LancamentoDB.forma_pagamento, LancamentoDB.referencia_id, LancamentoDB.texto) \
         .order_by(LancamentoDB.criado_em, LancamentoDB.id)
     return _periodo(_do_comerciante(q, LancamentoDB.comerciante_id, f), LancamentoDB.criado_em, f, tz)
+
+
+def _q_clientes(f: Filtro, tz) -> Select:
+    q = select(ClienteDB.nome, ClienteDB.saldo_devedor, ClienteDB.divida_desde, ClienteDB.criado_em,
+               ClienteDB.atualizado_em).order_by(ClienteDB.saldo_devedor.desc(), ClienteDB.nome)
+    return _do_comerciante(q, ClienteDB.comerciante_id, f)
+
+
+def _q_fiado(f: Filtro, tz) -> Select:
+    q = select(FiadoLancamentoDB.criado_em, ClienteDB.nome, FiadoLancamentoDB.tipo, FiadoLancamentoDB.valor,
+               FiadoLancamentoDB.forma_pagamento, FiadoLancamentoDB.texto) \
+        .join(ClienteDB, ClienteDB.id == FiadoLancamentoDB.cliente_id) \
+        .order_by(FiadoLancamentoDB.criado_em, FiadoLancamentoDB.id)
+    return _periodo(_do_comerciante(q, FiadoLancamentoDB.comerciante_id, f), FiadoLancamentoDB.criado_em, f, tz)
 
 
 def _q_pendencias(f: Filtro, tz) -> Select:
@@ -178,16 +195,27 @@ EXPORTACOES: dict[str, Exportacao] = {e.nome: e for e in [
     ),
     Exportacao(
         "movimentos", ["data_hora", "tipo", "produto", "quantidade", "unidade", "valor_unitario", "valor_total",
-                       "desfaz_mensagem", "corrige_movimento", "autor", "motivo", "texto"],
+                       "desfaz_mensagem", "corrige_movimento", "autor", "motivo", "texto", "forma_pagamento",
+                       "custo_na_venda"],
         _q_movimentos,
         lambda r, tz: [fmt_data(r[0], tz), r[1], r[2], fmt_decimal(r[3]), r[4], fmt_decimal(r[5]),
-                       fmt_decimal(r[6]), r[7], r[8] or "", r[9] or "bot", r[10], r[11]],
+                       fmt_decimal(r[6]), r[7], r[8] or "", r[9] or "bot", r[10], r[11], r[12], fmt_decimal(r[13])],
         exige_comerciante=True, tem_periodo=True,
     ),
     Exportacao(
         "caixa", ["data_hora", "tipo", "categoria", "descricao", "valor", "forma_pagamento", "referencia", "texto"],
         _q_caixa,
         lambda r, tz: [fmt_data(r[0], tz), r[1], r[2], r[3], fmt_decimal(r[4]), r[5], r[6] or "", r[7]],
+        exige_comerciante=True, tem_periodo=True,
+    ),
+    Exportacao(
+        "clientes", ["cliente", "deve", "deve_desde", "criado_em", "atualizado_em"], _q_clientes,
+        lambda r, tz: [r[0], fmt_decimal(r[1]), fmt_data(r[2], tz), fmt_data(r[3], tz), fmt_data(r[4], tz)],
+        exige_comerciante=True,
+    ),
+    Exportacao(
+        "fiado", ["data_hora", "cliente", "tipo", "valor", "forma_pagamento", "texto"], _q_fiado,
+        lambda r, tz: [fmt_data(r[0], tz), r[1], r[2], fmt_decimal(r[3]), r[4], r[5]],
         exige_comerciante=True, tem_periodo=True,
     ),
     Exportacao(
@@ -216,7 +244,7 @@ EXPORTACOES: dict[str, Exportacao] = {e.nome: e for e in [
     ),
 ]}
 
-PACOTE = ["estoque", "movimentos", "caixa", "pendencias", "mensagens"]  # o que vai no ZIP de um comerciante
+PACOTE = ["estoque", "movimentos", "caixa", "clientes", "fiado", "pendencias", "mensagens"]  # o que vai no ZIP de um comerciante
 
 
 class Exportador:

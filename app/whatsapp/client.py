@@ -18,12 +18,17 @@ class MensagemRecebida:
     nome: str | None = None
     media_id: str | None = None
     texto: str | None = None
+    payload: str | None = None  # botão de resposta rápida de um template (ex.: "Ver detalhes" do fechamento)
 
 
 class WhatsApp(Protocol):
     def baixar_midia(self, media_id: str) -> bytes: ...
-    def enviar_texto(self, para: str, texto: str) -> None: ...
-    def enviar_audio(self, para: str, audio: AudioGerado) -> None: ...
+    def enviar_texto(self, para: str, texto: str) -> str: ...  # devolve o wa_msg_id da mensagem enviada
+    def enviar_audio(self, para: str, audio: AudioGerado) -> str: ...
+    def enviar_imagem(self, para: str, conteudo: bytes, mime: str, legenda: str = "") -> str: ...
+    def enviar_documento(self, para: str, conteudo: bytes, nome: str, mime: str, legenda: str = "") -> str: ...
+    def enviar_template(self, para: str, nome: str, idioma: str, parametros: list[str],
+                        payload_botao: str | None = None) -> str: ...
 
 
 def assinatura_valida(corpo: bytes, cabecalho: str | None, app_secret: str) -> bool:
@@ -49,6 +54,7 @@ def extrair_status(payload: dict) -> list[dict]:
                     "status": st.get("status"),
                     "para": mascarar(st.get("recipient_id", "")),
                     "msg_id": st.get("id", "")[-12:],
+                    "wa_msg_id": st.get("id", ""),
                     "quando": st.get("timestamp"),
                     "erros": erros,
                 })
@@ -73,11 +79,26 @@ def extrair_mensagens(payload: dict) -> list[MensagemRecebida]:
                     mensagens.append(MensagemRecebida(**base, media_id=msg["audio"]["id"]))
                 elif tipo == "text":
                     mensagens.append(MensagemRecebida(**base, texto=msg["text"]["body"]))
+                elif tipo == "button":  # resposta rápida de template
+                    botao = msg.get("button", {})
+                    mensagens.append(MensagemRecebida(**base, texto=botao.get("text", ""),
+                                                      payload=botao.get("payload") or None))
+                elif tipo == "interactive" and msg.get("interactive", {}).get("type") == "button_reply":
+                    botao = msg["interactive"]["button_reply"]
+                    mensagens.append(MensagemRecebida(**{**base, "tipo": "button"}, texto=botao.get("title", ""),
+                                                      payload=botao.get("id") or None))
     return mensagens
 
 
 class ErroWhatsApp(RuntimeError):
     """Erro devolvido pela API da Meta, com o código e a mensagem dela (ex.: 131030)."""
+
+    def __init__(self, mensagem: str, codigo: int | None = None):
+        super().__init__(mensagem)
+        self.codigo = codigo
+
+
+FORA_DA_JANELA = 131047  # mais de 24h desde a última mensagem do cliente: só template
 
 
 def numero_para_envio(telefone: str) -> str:
@@ -92,6 +113,19 @@ def numero_para_envio(telefone: str) -> str:
     return telefone
 
 
+def wa_id_brasil(telefone: str) -> str:
+    """Forma em que a Meta manda o wa_id de celular brasileiro: sem o nono dígito (55 + DDD + 8 dígitos)."""
+    t = "".join(c for c in telefone if c.isdigit())
+    if t.startswith("55") and len(t) == 13 and t[4] == "9":
+        return t[:4] + t[5:]
+    return t
+
+
+def variantes_telefone(telefone: str) -> set[str]:
+    """O mesmo número com e sem o nono dígito (para achar o cadastro de qualquer jeito que vier)."""
+    return {telefone, wa_id_brasil(telefone), numero_para_envio(wa_id_brasil(telefone))}
+
+
 def telefone_permitido(telefone: str, permitidos: str) -> bool:
     """True se a lista estiver vazia ou contiver o telefone (compara já com o nono dígito)."""
     lista = {numero_para_envio(t.strip().lstrip("+")) for t in permitidos.split(",") if t.strip()}
@@ -101,14 +135,16 @@ def telefone_permitido(telefone: str, permitidos: str) -> bool:
 def _checar(resposta: httpx.Response, etapa: str) -> None:
     if resposta.is_success:
         return
+    codigo = None
     try:
         erro = resposta.json().get("error", {})
+        codigo = erro.get("code")
         detalhe = f"{erro.get('code')}: {erro.get('message')}"
         if erro.get("error_data", {}).get("details"):
             detalhe += f" | {erro['error_data']['details']}"
     except ValueError:
         detalhe = resposta.text[:300]
-    raise ErroWhatsApp(f"{etapa}: HTTP {resposta.status_code} - {detalhe}")
+    raise ErroWhatsApp(f"{etapa}: HTTP {resposta.status_code} - {detalhe}", codigo)
 
 
 class WhatsAppCloudClient:
@@ -124,19 +160,44 @@ class WhatsAppCloudClient:
         _checar(arquivo, "baixar mídia")
         return arquivo.content
 
-    def enviar_texto(self, para: str, texto: str) -> None:
-        self._enviar(para, {"type": "text", "text": {"body": texto}})
+    def enviar_texto(self, para: str, texto: str) -> str:
+        return self._enviar(para, {"type": "text", "text": {"body": texto}})
 
-    def enviar_audio(self, para: str, audio: AudioGerado) -> None:
+    def enviar_audio(self, para: str, audio: AudioGerado) -> str:
+        media_id = self._subir(audio.conteudo, f"resposta.{audio.extensao}", audio.mime_type, "subir áudio")
+        return self._enviar(para, {"type": "audio", "audio": {"id": media_id}})
+
+    def enviar_imagem(self, para: str, conteudo: bytes, mime: str, legenda: str = "") -> str:
+        media_id = self._subir(conteudo, "grafico.png", mime, "subir imagem")
+        imagem = {"id": media_id, **({"caption": legenda[:1024]} if legenda else {})}
+        return self._enviar(para, {"type": "image", "image": imagem})
+
+    def enviar_documento(self, para: str, conteudo: bytes, nome: str, mime: str, legenda: str = "") -> str:
+        media_id = self._subir(conteudo, nome, mime, "subir documento")
+        documento = {"id": media_id, "filename": nome, **({"caption": legenda[:1024]} if legenda else {})}
+        return self._enviar(para, {"type": "document", "document": documento})
+
+    def enviar_template(self, para: str, nome: str, idioma: str, parametros: list[str],
+                        payload_botao: str | None = None) -> str:
+        componentes: list[dict] = []
+        if parametros:
+            componentes.append({"type": "body", "parameters": [{"type": "text", "text": p} for p in parametros]})
+        if payload_botao:
+            componentes.append({"type": "button", "sub_type": "quick_reply", "index": "0",
+                                "parameters": [{"type": "payload", "payload": payload_botao}]})
+        return self._enviar(para, {"type": "template", "template": {
+            "name": nome, "language": {"code": idioma}, "components": componentes}})
+
+    def _subir(self, conteudo: bytes, nome: str, mime: str, etapa: str) -> str:
         upload = self._http.post(
             f"{self._base}/{self._phone_number_id}/media",
-            data={"messaging_product": "whatsapp", "type": audio.mime_type},
-            files={"file": (f"resposta.{audio.extensao}", audio.conteudo, audio.mime_type)},
+            data={"messaging_product": "whatsapp", "type": mime},
+            files={"file": (nome, conteudo, mime)},
         )
-        _checar(upload, "subir áudio")
-        self._enviar(para, {"type": "audio", "audio": {"id": upload.json()["id"]}})
+        _checar(upload, etapa)
+        return upload.json()["id"]
 
-    def _enviar(self, para: str, conteudo: dict) -> None:
+    def _enviar(self, para: str, conteudo: dict) -> str:
         resposta = self._http.post(
             f"{self._base}/{self._phone_number_id}/messages",
             json={
@@ -147,3 +208,5 @@ class WhatsAppCloudClient:
             },
         )
         _checar(resposta, f"enviar {conteudo['type']}")
+        mensagens = resposta.json().get("messages") or [{}]
+        return mensagens[0].get("id", "")

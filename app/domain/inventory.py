@@ -58,6 +58,7 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
             )
             continue
 
+        custo_na_venda = None
         if intencao.acao == Acao.COMPRA:
             if atual is None:
                 atual = ProdutoEstoque(produto=nome, unidade=unidade or "un", quantidade=ZERO)
@@ -79,6 +80,7 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
                 continue
             depois = antes - q
             tipo = TipoMovimento.SAIDA
+            custo_na_venda = atual.custo_medio
 
         atual.quantidade = depois
         atual.atualizado_em = agora
@@ -95,6 +97,7 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
                 valor_unitario=valor_unitario,
                 texto_transcrito=texto,
                 whatsapp_msg_id=msg_id,
+                custo_unitario=custo_na_venda,
             )
         )
         resultado.mudancas.append(
@@ -130,6 +133,7 @@ def desfazer(movimentos: list[Movimento], estoque: Estoque, *, texto: str, msg_i
     resultado = Resultado(acao=Acao.DESFAZER)
     ja_desfeitos = {m.referencia for m in movimentos if m.tipo == TipoMovimento.AJUSTE and m.referencia}
     normais = [m for m in movimentos if m.tipo in (TipoMovimento.ENTRADA, TipoMovimento.SAIDA)]
+    vigentes = valores_vigentes(movimentos)
     alvo = next((m.whatsapp_msg_id for m in reversed(normais) if m.whatsapp_msg_id not in ja_desfeitos), None)
     if alvo is None:
         resultado.problemas.append("Não tem nada para desfazer.")
@@ -152,8 +156,9 @@ def desfazer(movimentos: list[Movimento], estoque: Estoque, *, texto: str, msg_i
                 continue
             delta = -m.quantidade
             depois = antes + delta
-            if m.valor_total is not None and atual.custo_medio is not None and depois > 0:
-                atual.custo_medio = max(unitario((antes * atual.custo_medio - m.valor_total) / depois), ZERO)
+            valor = vigentes.get(m.id, (None, m.valor_total))[1]
+            if valor is not None and atual.custo_medio is not None and depois > 0:
+                atual.custo_medio = max(unitario((antes * atual.custo_medio - valor) / depois), ZERO)
         else:
             delta = m.quantidade
             depois = antes + delta
@@ -211,3 +216,109 @@ def _fechar(resultado: Resultado, trabalho: Estoque) -> Resultado:
         return resultado
     resultado.estoque_alterado = list(trabalho.values())
     return resultado
+
+
+def valores_vigentes(movimentos: list[Movimento]) -> dict[str, tuple[Decimal | None, Decimal | None]]:
+    """{id do movimento: (valor_unitario, valor_total)} já com os ajuste_valor aplicados (vale o último)."""
+    vigentes = {m.id: (m.valor_unitario, m.valor_total)
+                for m in movimentos if m.tipo in (TipoMovimento.ENTRADA, TipoMovimento.SAIDA)}
+    for m in movimentos:
+        if m.tipo == TipoMovimento.AJUSTE_VALOR and m.referencia_mov in vigentes:
+            vigentes[m.referencia_mov] = (m.valor_unitario, m.valor_total)
+    return vigentes
+
+
+def ajustar_valor(
+    original: Movimento,
+    estoque: Estoque,
+    *,
+    valor_unitario: Decimal | None,
+    valor_total: Decimal | None,
+    valor_anterior: Decimal | None,
+    texto: str,
+    msg_id: str,
+    agora: str,
+    indice: int = 0,
+) -> Resultado:
+    """Completa (ou corrige) o valor de uma entrada/saída já gravada, sem reescrever o livro-caixa.
+
+    Gera um movimento `ajuste_valor` (quantidade 0) que referencia o original. Na entrada, o custo médio
+    é recalculado trocando o valor daquelas unidades:
+        custo_novo = custo + q × (unitário_novo − unitário_antigo) ÷ saldo,   q = min(quantidade da entrada, saldo)
+    Entrada sem valor era contada pelo custo médio da época (aplicar mantém o custo), então o unitário antigo
+    é o próprio custo atual. Sem custo conhecido (ou sem saldo), o custo passa a ser o unitário novo.
+    """
+    resultado = Resultado(acao=Acao.COMPRA if original.tipo == TipoMovimento.ENTRADA else Acao.VENDA)
+    chave = chave_produto(original.produto)
+    try:
+        unit, total = resolver_valores(original.quantidade, valor_unitario, valor_total)
+    except ValoresIncoerentes:
+        resultado.problemas.append(
+            f"Não entendi o valor de {original.produto}: o preço por unidade não bate com o total. Pode repetir?"
+        )
+        return resultado
+    if unit is None:
+        resultado.problemas.append(f"Não entendi o valor de {original.produto}.")
+        return resultado
+
+    atual = replace(estoque[chave]) if chave in estoque else None
+    trabalho: Estoque = {}
+    if original.tipo == TipoMovimento.ENTRADA and atual is not None:
+        saldo, custo = atual.quantidade, atual.custo_medio
+        if custo is None or saldo <= 0:
+            atual.custo_medio = unit
+        else:
+            antigo = unitario(valor_anterior / original.quantidade) if valor_anterior is not None else custo
+            q = min(original.quantidade, saldo)
+            atual.custo_medio = max(unitario(custo + q * (unit - antigo) / saldo), ZERO)
+        atual.atualizado_em = agora
+        trabalho[chave] = atual
+
+    saldo_atual = atual.quantidade if atual is not None else ZERO
+    resultado.movimentos.append(Movimento(
+        id=f"{msg_id}-{indice}", data_hora=agora, tipo=TipoMovimento.AJUSTE_VALOR, produto=original.produto,
+        quantidade=ZERO, unidade=original.unidade, valor_total=total, valor_unitario=unit, texto_transcrito=texto,
+        whatsapp_msg_id=msg_id, referencia_mov=original.id,
+    ))
+    resultado.mudancas.append(Mudanca(
+        produto=original.produto, unidade=original.unidade, antes=saldo_atual, depois=saldo_atual,
+        tipo=TipoMovimento.AJUSTE_VALOR, quantidade=original.quantidade, valor_total=total,
+    ))
+    return _fechar(resultado, trabalho)
+
+
+def corrigir_quantidade(
+    original: Movimento, estoque: Estoque, *, quantidade_nova: Decimal, texto: str, msg_id: str, agora: str,
+    indice: int = 0,
+) -> Resultado:
+    """Corrige a quantidade de uma entrada/saída já gravada com um `ajuste` da diferença (o custo não muda)."""
+    resultado = Resultado(acao=Acao.COMPRA if original.tipo == TipoMovimento.ENTRADA else Acao.VENDA)
+    chave = chave_produto(original.produto)
+    quantidade_nova = quantidade(quantidade_nova)
+    if quantidade_nova <= 0:
+        resultado.problemas.append(f"Não entendi a quantidade de {original.produto}.")
+        return resultado
+    atual = replace(estoque[chave]) if chave in estoque else None
+    if atual is None:
+        resultado.problemas.append(f"Não achei {original.produto} no estoque.")
+        return resultado
+    diferenca = quantidade_nova - original.quantidade
+    delta = diferenca if original.tipo == TipoMovimento.ENTRADA else -diferenca
+    antes = atual.quantidade
+    if antes + delta < 0:
+        resultado.problemas.append(
+            f"Não dá para corrigir: só tem {fmt_num(antes)} {unidade_falada(atual.unidade, antes)} de {atual.produto}."
+        )
+        return resultado
+    atual.quantidade = antes + delta
+    atual.atualizado_em = agora
+    resultado.movimentos.append(Movimento(
+        id=f"{msg_id}-{indice}", data_hora=agora, tipo=TipoMovimento.AJUSTE, produto=atual.produto, quantidade=delta,
+        unidade=atual.unidade, valor_total=None, valor_unitario=None, texto_transcrito=texto, whatsapp_msg_id=msg_id,
+        referencia_mov=original.id,
+    ))
+    resultado.mudancas.append(Mudanca(
+        produto=atual.produto, unidade=atual.unidade, antes=antes, depois=atual.quantidade, tipo=TipoMovimento.AJUSTE,
+        quantidade=delta,
+    ))
+    return _fechar(resultado, {chave: atual})

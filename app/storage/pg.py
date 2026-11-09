@@ -83,6 +83,8 @@ def movimento_de(linha: MovimentoDB, tz: ZoneInfo, origens: dict[int, str]) -> M
         produto=linha.produto, quantidade=linha.quantidade, unidade=linha.unidade, valor_total=linha.valor_total,
         valor_unitario=linha.valor_unitario, texto_transcrito=linha.texto, whatsapp_msg_id=linha.wa_msg_id,
         referencia=linha.referencia_msg, referencia_mov=origens.get(linha.referencia_id, "") if linha.referencia_id else "",
+        forma_pagamento=linha.forma_pagamento, forma_pagamento_origem=linha.forma_pagamento_origem,
+        custo_unitario=linha.custo_unitario,
     )
 
 
@@ -166,6 +168,8 @@ class PgInventoryRepository:
                 valor_total=m.valor_total, valor_unitario=m.valor_unitario, texto=m.texto_transcrito,
                 wa_msg_id=m.whatsapp_msg_id, mensagem_id=mensagem_id, referencia_msg=m.referencia,
                 referencia_id=refs.get(m.referencia_mov),
+                forma_pagamento=m.forma_pagamento or "nao_informado", forma_pagamento_origem=m.forma_pagamento_origem,
+                custo_unitario=m.custo_unitario,
                 criado_em=para_datetime(m.data_hora, self._tz) or datetime.now(self._tz),
             )
             s.add(linha)

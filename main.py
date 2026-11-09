@@ -3,6 +3,9 @@
 - GET  /api/webhook : verificação do webhook pela Meta
 - POST /api/webhook : recebe mensagens, valida, descarta duplicadas e enfileira (responde 200 rápido)
 - POST /api/worker  : chamado pelo QStash; roda o pipeline completo
+- POST /api/tarefas/limpeza : agendado no QStash; expira pendências e aplica a retenção das mensagens
+- POST /api/tarefas/fechamento : agendado no QStash (a cada 15 min); publica o fechamento de quem está na hora
+- POST /api/tarefas/fechamento/enviar : chamado pelo QStash; manda o fechamento de um comerciante
 """
 
 import logging
@@ -29,7 +32,26 @@ from app.whatsapp.client import (  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("api")
 
-app = FastAPI()
+app = FastAPI(
+    title="Bot de estoque",
+    version="1",
+    docs_url="/api/admin/v1/docs",
+    openapi_url="/api/admin/v1/openapi.json",
+    redoc_url=None,
+)
+
+from app.admin.rotas import router as admin_router  # noqa: E402
+
+app.include_router(admin_router)
+
+# O front do admin chama a API pela mesma origem (rewrite /api/* no projeto da Vercel dele). O CORS só é
+# ligado se ADMIN_ORIGIN estiver definido (ex.: desenvolvimento com o Vite em outra porta).
+if get_settings().admin_origin:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(CORSMiddleware, allow_origins=[get_settings().admin_origin], allow_credentials=True,
+                       allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                       allow_headers=["Authorization", "Content-Type"])
 
 
 OBRIGATORIAS = [
@@ -66,8 +88,17 @@ def health():
         "qstash_url": s.qstash_url or "(padrão)",
         "groq_model": s.groq_model,
         "groq_stt_model": s.groq_stt_model,
-        "telefones_permitidos": len([t for t in s.telefones_permitidos.split(",") if t.strip()]) or "todos",
+        "telefones_permitidos": len([t for t in s.telefones_permitidos.split(",") if t.strip()]),
+        "config_versao": _versao_config(),
+        "modo_teste": s.modo_teste,
     }
+
+
+def _versao_config() -> str | None:
+    try:
+        return container.configuracoes().versao()
+    except Exception:
+        return None
 
 
 @app.get("/api/webhook")
@@ -96,12 +127,14 @@ async def receber_webhook(request: Request):
             log.info("entrega: %s para %s", evento["status"], evento["para"])
         try:
             controle.registrar_status(evento)
+            container.mensagens().atualizar_entrega(evento["wa_msg_id"], evento["status"], evento["erros"])
         except Exception:
             log.exception("não consegui guardar o status de entrega")
 
     for msg in extrair_mensagens(payload):
-        if not telefone_permitido(msg.telefone, settings.telefones_permitidos):
-            log.info("ignorando número fora da lista de permitidos: %s", mascarar(msg.telefone))
+        if not _permitido(msg, settings):
+            log.info("ignorando número não aprovado: %s", mascarar(msg.telefone))
+            _registrar_ignorada(msg)
             continue
         if not controle.primeira_vez(msg.msg_id):
             continue
@@ -121,6 +154,28 @@ async def receber_webhook(request: Request):
     return {"ok": True}
 
 
+def _permitido(msg: MensagemRecebida, settings) -> bool:
+    """TELEFONES_PERMITIDOS (transição) ou o cadastro no banco (comerciantes.permitido)."""
+    lista = settings.telefones_permitidos
+    if lista.strip() and telefone_permitido(msg.telefone, lista):
+        return True
+    try:
+        return container.acesso().verificar(msg.telefone, msg.nome) == "permitido"
+    except Exception:
+        log.exception("não consegui consultar o acesso; ignorando por segurança")
+        return False
+
+
+def _registrar_ignorada(msg: MensagemRecebida) -> None:
+    """Fica no banco que chegou algo de um número não permitido: só o telefone mascarado e a hora."""
+    try:
+        mensagens = container.mensagens()
+        mid, _ = mensagens.registrar_entrada(None, msg.msg_id, msg.tipo, "", mascarar(msg.telefone))
+        mensagens.atualizar(mid, status="ignorada")
+    except Exception:
+        log.exception("não consegui registrar a mensagem ignorada")
+
+
 @app.post("/api/worker")
 async def worker(request: Request):
     corpo = (await request.body()).decode()
@@ -135,3 +190,48 @@ async def worker(request: Request):
         log.warning("tentar de novo depois: %s", e)
         return Response(status_code=503)  # QStash tenta de novo
     return {"ok": True}
+
+
+@app.post("/api/tarefas/limpeza")
+async def limpeza(request: Request):
+    """Agendada no QStash (assinada como o worker): expira pendências vencidas e apaga mensagens antigas."""
+    corpo = (await request.body()).decode()
+    settings = get_settings()
+    url = settings.base_url + "/api/tarefas/limpeza"
+    if not container.verificador_qstash().valido(corpo, request.headers.get("Upstash-Signature"), url):
+        return Response(status_code=401)
+    mensagens = container.mensagens()
+    expiradas = mensagens.expirar_pendencias()
+    apagadas = mensagens.limpar(settings.retencao_mensagens_dias)
+    log.info("limpeza: %d pendências expiradas, %d mensagens apagadas", expiradas, apagadas)
+    return {"ok": True, "pendencias_expiradas": expiradas, "mensagens_apagadas": apagadas}
+
+
+def _assinada(request: Request, corpo: str, caminho: str) -> bool:
+    url = get_settings().base_url + caminho
+    return container.verificador_qstash().valido(corpo, request.headers.get("Upstash-Signature"), url)
+
+
+@app.post("/api/tarefas/fechamento")
+async def fechamento_agendar(request: Request):
+    """A cada 15 min: quem tem o fechamento do caixa agora recebe (uma tarefa por comerciante)."""
+    corpo = (await request.body()).decode()
+    if not _assinada(request, corpo, "/api/tarefas/fechamento"):
+        return Response(status_code=401)
+    resultado = container.fechamento().agendar()
+    log.info("fechamento: %s", resultado)
+    return {"ok": True, **resultado}
+
+
+@app.post("/api/tarefas/fechamento/enviar")
+async def fechamento_enviar(request: Request):
+    corpo = (await request.body()).decode()
+    if not _assinada(request, corpo, "/api/tarefas/fechamento/enviar"):
+        return Response(status_code=401)
+    tarefa = await request.json()
+    try:
+        status = container.fechamento().enviar(int(tarefa["comerciante_id"]), tarefa["tipo"], tarefa["referencia"])
+    except Exception:
+        log.exception("fechamento do comerciante %s falhou", tarefa.get("comerciante_id"))
+        return Response(status_code=503)  # o QStash tenta de novo (a reserva libera depois de "erro")
+    return {"ok": True, "status": status}

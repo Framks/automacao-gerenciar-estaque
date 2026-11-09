@@ -12,7 +12,8 @@ class SpeechToText(Protocol):
 
 
 class GroqWhisperSTT:
-    def __init__(self, api_key: str, model: str, client: groq.Groq | None = None):
+    def __init__(self, api_key: str, model, client: groq.Groq | None = None):
+        """`model`: nome do modelo, ou uma função que o devolve (lido das configurações a cada chamada)."""
         self._client = client or groq.Groq(api_key=api_key)
         self._model = model
 
@@ -20,7 +21,7 @@ class GroqWhisperSTT:
         try:
             resposta = self._client.audio.transcriptions.create(
                 file=(nome_arquivo, audio),
-                model=self._model,
+                model=self._model() if callable(self._model) else self._model,
                 language="pt",
                 response_format="json",
                 temperature=0,
