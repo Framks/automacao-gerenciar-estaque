@@ -260,6 +260,8 @@ class Atendimento:
             return
 
         forma, origem = self._forma(op)
+        if op.tipo == TipoOperacao.VENDA and op.valor_recebido is not None and forma == NAO_INFORMADO:
+            forma, origem = "dinheiro", "inferido"
         fiado = op.tipo == TipoOperacao.VENDA and forma == "fiado"
         cliente = None
         if fiado:
@@ -273,14 +275,22 @@ class Atendimento:
             return
         novos = ex.gravar_resultado(r, forma, origem)
 
-        extra = ""
+        partes_extra: list[str] = []
         if fiado and cliente is not None:
             for m in novos:
                 atual = ex.lancar_fiado(cliente.chave, cliente.nome, "divida", m.valor_total, movimento_ref=m.id)
-            extra = replies.fiado_anotado(atual.nome, atual.saldo)
+            partes_extra.append(replies.fiado_anotado(atual.nome, atual.saldo))
         elif origem == "dito":
-            extra = replies.frase_pagamento(op.tipo.value, forma)
-        ex.frases.append(replies.montar(r, extra))
+            frase_pag = replies.frase_pagamento(op.tipo.value, forma)
+            if frase_pag:
+                partes_extra.append(frase_pag)
+        if op.tipo == TipoOperacao.VENDA and op.valor_recebido is not None and novos and all(
+            m.valor_total is not None for m in novos
+        ):
+            total_venda = sum((m.valor_total for m in novos), Decimal(0))
+            recebido = reais(op.valor_recebido)
+            partes_extra.append(replies.troco(total_venda, recebido, recebido - total_venda))
+        ex.frases.append(replies.montar(r, " ".join(partes_extra)))
 
         if op.tipo == TipoOperacao.COMPRA and self.p.perguntar_valor_compra:
             for falta in av.itens:

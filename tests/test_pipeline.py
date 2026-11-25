@@ -153,6 +153,16 @@ def test_saudacao_ola_envia_lista_numerada_e_audio_explicativo(ambiente):
     assert b"estoque para guardar, vender para sa" in audio_gerado.conteudo
 
 
+def test_venda_sem_estoque_alerta_com_audio(ambiente):
+    criar, wa, _, _ = ambiente
+    interp = FakeInterpreter([{"tipo": "venda", "itens": [{"produto": "bolo", "quantidade": 2}]}])
+    p = criar(interpreter=interp, stt=FakeSTT("vendi 2 bolos"))
+    p.processar(audio("m1"))
+    (para, texto), = wa.textos
+    assert "Não achei bolo no estoque." in texto
+    assert wa.audios == [(para, AudioGerado(b"ogg:" + texto.encode(), "audio/ogg", "ogg"))]
+
+
 def test_mensagem_registrada_com_status_intencao_tempos_e_saidas(ambiente):
     criar, wa, _, mensagens = ambiente
     criar().processar(audio())

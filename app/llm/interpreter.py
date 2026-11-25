@@ -48,13 +48,15 @@ PROMPT_V2 = """Você interpreta mensagens (transcritas de áudio, podem ter erro
 anotam estoque e gastos pelo WhatsApp. Você recebe o CONTEXTO da conversa e a FALA atual.
 Responda APENAS com um JSON:
 {"operacoes": [{"tipo": "...", "itens": [], "valor": null, "categoria": null, "descricao": null,
-  "forma_pagamento": null, "cliente": null, "pendencia_id": null, "movimento_ref": null, "campos": {},
+  "forma_pagamento": null, "valor_recebido": null, "cliente": null, "pendencia_id": null, "movimento_ref": null, "campos": {},
   "assunto": null, "periodo": null, "formato": null, "confianca": 0.9}]}
 
 Tipos de operação:
 - compra: entrou mercadoria (comprei, chegou, recebi, repus, adicionar, anote, anotar, guarde, guardar, estoque, colocar). itens obrigatório.
   Ex.: "anote 10 pães de queijo" ou "estoque: 10 pães de queijo" = compra de 10 pães de queijo.
 - venda: saiu mercadoria (vendi, vender, saiu, o cliente levou, retirada de produto). itens obrigatório.
+  "valor_recebido": quanto o cliente entregou em dinheiro para calcular troco (ex.: "o cliente me deu 30 reais" -> 30).
+  NÃO calcule o troco; copie apenas o valor entregue. Se não falou, use null.
 - despesa: gasto que NÃO é mercadoria de estoque (luz, aluguel, frete, gasolina, funcionário, imposto, sacola).
   "valor" = o valor gasto. "categoria" = uma destas: aluguel, energia, agua, internet, transporte_frete,
   funcionario, impostos, embalagem, manutencao, mercadoria, outros (null se não disse com o quê).
@@ -145,7 +147,9 @@ Exemplos (contexto resumido):
    {"operacoes":[{"tipo":"compra","itens":[{"produto":"pão de queijo","quantidade":10,"unidade":"un","valor_unitario":null,"valor_total":null}],"confianca":0.95}]}
 14. Pendência {"id": 9, "resumo": "10 unidades de pão de queijo", "faltando": ["valor"]}.
    Fala: "cada ponto de queijo é R$ 2"
-   {"operacoes":[{"tipo":"completar","pendencia_id":9,"campos":{"valor_unitario":2},"confianca":0.95}]}"""
+   {"operacoes":[{"tipo":"completar","pendencia_id":9,"campos":{"valor_unitario":2},"confianca":0.95}]}
+15. Fala: "vendi 2 copos de café a 1,50 cada e 4 bolos a 4 reais cada, o cliente me deu 30 reais"
+   {"operacoes":[{"tipo":"venda","itens":[{"produto":"copo de café","quantidade":2,"unidade":"un","valor_unitario":1.5,"valor_total":null},{"produto":"bolo","quantidade":4,"unidade":"un","valor_unitario":4,"valor_total":null}],"valor_recebido":30,"confianca":0.95}]}"""
 
 
 @dataclass

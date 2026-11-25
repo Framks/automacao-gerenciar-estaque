@@ -236,6 +236,14 @@ def frase_pagamento(tipo: str, forma: str) -> str:
     return f"{'Recebido' if tipo == 'venda' else 'Pago'} {_falada(forma)}."
 
 
+def troco(total_venda: Decimal, recebido: Decimal, troco_valor: Decimal) -> str:
+    if troco_valor > 0:
+        return f"Total: {fmt_reais(total_venda)}. Cliente deu {fmt_reais(recebido)}, troco de {fmt_reais(troco_valor)}."
+    if troco_valor == 0:
+        return f"Total: {fmt_reais(total_venda)}. Cliente deu {fmt_reais(recebido)}, sem troco."
+    return f"Total: {fmt_reais(total_venda)}. Cliente deu {fmt_reais(recebido)}, ainda faltam {fmt_reais(-troco_valor)}."
+
+
 def pergunta_pagamento(formas) -> str:
     from app.domain.pagamento import lista_falada
 

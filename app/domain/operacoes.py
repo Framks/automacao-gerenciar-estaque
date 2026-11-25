@@ -47,6 +47,7 @@ class Operacao(BaseModel):
     periodo: str | None = None  # consulta de gastos/caixa: "hoje", "ontem", "semana", "mes", "dia:3", "mes:10"...
     formato: str | None = None  # consulta de caixa: resumo | itens | por_dia | grafico | planilha
     forma_pagamento: str | None = None  # compra, venda, despesa, recebimento: como foi pago (só se foi falado)
+    valor_recebido: Decimal | None = None  # venda: quanto o cliente entregou para cálculo de troco
     cliente: str | None = None  # venda fiado, recebimento, perdoar, consulta de fiado
     tudo: bool = False  # recebimento: "acertou tudo", "pagou o que devia"
     dias: int | None = None  # consulta de fiado: "quem deve há mais de 30 dias"
@@ -73,12 +74,12 @@ class Operacao(BaseModel):
         except (TypeError, ValueError):
             return None
 
-    @field_validator("valor", mode="before")
+    @field_validator("valor", "valor_recebido", mode="before")
     @classmethod
     def _numero(cls, valor):
         return parse_valor(valor)
 
-    @field_serializer("valor", when_used="json")
+    @field_serializer("valor", "valor_recebido", when_used="json")
     def _numero_json(self, valor):
         return None if valor is None else float(valor)
 

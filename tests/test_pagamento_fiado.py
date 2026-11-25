@@ -57,6 +57,30 @@ def test_venda_no_pix_grava_e_fala_o_meio():
     assert m.custo_unitario == Decimal("5.0000")  # custo médio na hora da venda
 
 
+def test_venda_calcula_troco_para_multiplos_itens():
+    c = Conversa(Parametros(perguntar_pagamento=True))
+    c.fala("comprei 10 bolos e 2 copos de café", {
+        "tipo": "compra",
+        "itens": [
+            {"produto": "bolo", "quantidade": 10, "unidade": "un", "valor_total": 20},
+            {"produto": "copo de café", "quantidade": 2, "unidade": "un", "valor_total": 2},
+        ],
+    })
+    r = c.fala(
+        "vendi 2 copos de café a 1,50 cada e 4 bolos a 4 reais cada, o cliente me deu 30 reais",
+        {
+            "tipo": "venda",
+            "itens": [
+                {"produto": "copo de café", "quantidade": 2, "unidade": "un", "valor_unitario": 1.5},
+                {"produto": "bolo", "quantidade": 4, "unidade": "un", "valor_unitario": 4},
+            ],
+            "valor_recebido": 30,
+        },
+    )
+    assert "Total: 19 reais. Cliente deu 30 reais, troco de 11 reais." in r
+    assert "Foi em" not in r
+
+
 def test_venda_sem_meio_usa_o_padrao_sem_falar():
     c = com_estoque(Parametros(pagamento_padrao="dinheiro"))
     r = c.fala("vendi 1 kg de arroz por 6", venda("arroz", 1, valor_total=6))
