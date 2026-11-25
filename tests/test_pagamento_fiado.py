@@ -79,6 +79,21 @@ def test_venda_calcula_troco_para_multiplos_itens():
     )
     assert "Total: 19 reais. Cliente deu 30 reais, troco de 11 reais." in r
     assert "Foi em" not in r
+    assert "Atenção: copo de café acabou no estoque." in r
+
+
+def test_preco_venda_padrao_e_alerta_estoque_baixo():
+    c = Conversa()
+    c.fala("comprei 4 bolos", compra("bolo", 4, valor_total=8))
+    r1 = c.fala("o bolo é 4 reais", {"tipo": "configurar", "campos": {"produto": "bolo", "preco_venda": 4}})
+    assert "4 reais" in r1
+    r2 = c.fala("vendi 2 bolos, o cliente deu 10", {
+        "tipo": "venda",
+        "itens": [{"produto": "bolo", "quantidade": 2}],
+        "valor_recebido": 10,
+    })
+    assert "Total: 8 reais. Cliente deu 10 reais, troco de 2 reais." in r2
+    assert "Atenção: restam 2 quilos de bolo no estoque." in r2 or "Atenção: restam 2 unidades de bolo no estoque." in r2
 
 
 def test_venda_sem_meio_usa_o_padrao_sem_falar():

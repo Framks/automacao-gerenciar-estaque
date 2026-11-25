@@ -244,6 +244,16 @@ def troco(total_venda: Decimal, recebido: Decimal, troco_valor: Decimal) -> str:
     return f"Total: {fmt_reais(total_venda)}. Cliente deu {fmt_reais(recebido)}, ainda faltam {fmt_reais(-troco_valor)}."
 
 
+def alerta_estoque_baixo(produto: str, depois: Decimal, unidade: str) -> str:
+    if depois <= 0:
+        return f"Atenção: {produto} acabou no estoque."
+    return f"Atenção: restam {_qtd(depois, unidade)} de {produto} no estoque."
+
+
+def preco_venda_definido(produto: str, valor: Decimal, unidade: str) -> str:
+    return f"Certo! Preço de venda de {produto} definido em {preco_unitario(valor, unidade)}."
+
+
 def pergunta_pagamento(formas) -> str:
     from app.domain.pagamento import lista_falada
 

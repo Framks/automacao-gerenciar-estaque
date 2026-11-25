@@ -73,7 +73,7 @@ class PgComerciantes:
 def produto_de(linha: ProdutoDB, tz: ZoneInfo) -> ProdutoEstoque:
     return ProdutoEstoque(
         produto=linha.nome, unidade=linha.unidade, quantidade=linha.quantidade, custo_medio=linha.custo_medio,
-        atualizado_em=para_texto(linha.atualizado_em, tz), linha=linha.id,
+        atualizado_em=para_texto(linha.atualizado_em, tz), linha=linha.id, preco_venda=linha.preco_venda,
     )
 
 
@@ -151,6 +151,7 @@ class PgInventoryRepository:
                 atuais[chave] = linha
             linha.quantidade = p.quantidade
             linha.custo_medio = p.custo_medio
+            linha.preco_venda = p.preco_venda
             linha.atualizado_em = momento
         s.flush()
 

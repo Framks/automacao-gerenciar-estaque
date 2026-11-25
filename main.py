@@ -135,6 +135,7 @@ async def receber_webhook(request: Request):
         if not _permitido(msg, settings):
             log.info("ignorando número não aprovado: %s", mascarar(msg.telefone))
             _registrar_ignorada(msg)
+            _avisar_pendente(msg, controle)
             continue
         if not controle.primeira_vez(msg.msg_id):
             continue
@@ -174,6 +175,17 @@ def _registrar_ignorada(msg: MensagemRecebida) -> None:
         mensagens.atualizar(mid, status="ignorada")
     except Exception:
         log.exception("não consegui registrar a mensagem ignorada")
+
+
+def _avisar_pendente(msg: MensagemRecebida, controle) -> None:
+    try:
+        if controle.primeira_vez(f"pendente:{msg.telefone}"):
+            container.whatsapp().enviar_texto(
+                msg.telefone,
+                "Seu número foi registrado e aguarda autorização para uso.",
+            )
+    except Exception:
+        log.debug("não consegui avisar número pendente %s", mascarar(msg.telefone))
 
 
 @app.post("/api/worker")

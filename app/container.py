@@ -114,6 +114,12 @@ def parametros_de(cfg, comerciante_id):
 
 
 @lru_cache
+def whatsapp() -> WhatsAppCloudClient:
+    s = get_settings()
+    return WhatsAppCloudClient(s.whatsapp_token, s.whatsapp_phone_number_id, s.graph_api_version)
+
+
+@lru_cache
 def pipeline() -> Pipeline:
     from app.storage.pg_conversa import PgLoja
 
@@ -121,7 +127,7 @@ def pipeline() -> Pipeline:
     f = _fabrica()
     cfg = configuracoes()
     return Pipeline(
-        whatsapp=WhatsAppCloudClient(s.whatsapp_token, s.whatsapp_phone_number_id, s.graph_api_version),
+        whatsapp=whatsapp(),
         stt=GroqWhisperSTT(s.groq_api_key, lambda: cfg.get("groq_stt_model")),
         interpreter=GroqInterpreter(s.groq_api_key, lambda: cfg.get("groq_model")),
         tts=EdgeTTS(s.tts_voice),

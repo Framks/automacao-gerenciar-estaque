@@ -125,6 +125,7 @@ class Parametros:
     despesas: bool = True
     confianca_minima: float = 0.7
     valor_limite: Decimal = Decimal(1000)
+    estoque_baixo_limite: Decimal = Decimal(2)
     pendencia_validade_horas: int = 24
     categorias_despesa: tuple[str, ...] = tuple(CATEGORIAS)
     fiado: bool = True

@@ -76,9 +76,10 @@ class ProdutoEstoque:
     custo_medio: Decimal | None = None
     atualizado_em: str = ""
     linha: int | None = None  # linha na planilha (None = produto novo, ainda não gravado)
+    preco_venda: Decimal | None = None
 
     def __post_init__(self):
-        _decimais(self, "quantidade", "custo_medio")
+        _decimais(self, "quantidade", "custo_medio", "preco_venda")
 
 
 @dataclass

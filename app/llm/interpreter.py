@@ -68,10 +68,12 @@ Tipos de operação:
 - recebimento: um CLIENTE pagou o fiado ("o João pagou 20", "a Maria acertou tudo"). "cliente", "valor";
   "tudo": true se quitou tudo. "Paguei 20 pro fornecedor" NÃO é recebimento (é despesa ou compra).
 - perdoar: esquecer a dívida de um cliente ("esquece o que o Zé deve"). "cliente".
-- configurar: tudo sobre o ENVIO AUTOMÁTICO do fechamento ou o pagamento padrão (NÃO é consulta). "campos" só
-  com: fechamento_horario (como foi falado, ex. "8 da noite"; "desligar" em "para de mandar o fechamento"),
-  fechamento_mensal (true em "quero o fechamento do mês também", false para parar), fechamento_formato ("resumo"
-  ou "itens"), pagamento_padrao. Pergunta sobre o envio ("que horas chega o fechamento?"): campos {}.
+- configurar: tudo sobre o ENVIO AUTOMÁTICO do fechamento, o pagamento padrão ou o PREÇO DE VENDA de um produto
+  (NÃO é consulta). "campos" só com: fechamento_horario (como foi falado, ex. "8 da noite"; "desligar" em "para de
+  mandar o fechamento"), fechamento_mensal (true em "quero o fechamento do mês também", false para parar),
+  fechamento_formato ("resumo" ou "itens"), pagamento_padrao, ou produto + preco_venda (ex.: "o bolo é 4 reais"
+  sem pendência aberta -> {"produto": "bolo", "preco_venda": 4}). Pergunta sobre o envio ("que horas chega o
+  fechamento?"): campos {}.
 - completar: a fala responde uma PENDÊNCIA do contexto (o bot perguntou o valor, a quantidade, com o que foi
   o gasto). "pendencia_id" = o id da pendência. "campos" = só o que foi dito, entre: valor_unitario,
   valor_total, quantidade, unidade, categoria, descricao, cliente, cliente_novo (true em "é cliente novo"),
