@@ -42,6 +42,7 @@ def test_avaliar_despesa():
 
 def test_verbos():
     assert tem_verbo_de_operacao("Vendi 2 de feijão") and tem_verbo_de_operacao("comprei arroz")
+    assert tem_verbo_de_operacao("anote 10 pães de queijo") and tem_verbo_de_operacao("estoque 10 pães de queijo")
     assert not tem_verbo_de_operacao("o feijão, o quilo foi 10 reais")
 
 

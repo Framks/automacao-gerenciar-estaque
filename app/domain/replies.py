@@ -9,7 +9,7 @@ from app.domain.units import unidade_falada
 MAX_ITENS_CONSULTA = 10
 
 AJUDA = (
-    "Você pode falar, por exemplo: comprei 10 quilos de arroz por 50 reais. "
+    "Diga, por exemplo: estoque 10 pães de queijo a 2 reais cada. "
     "Ou: vendi 2 quilos de feijão. Ou: quanto arroz eu tenho?"
 )
 
@@ -42,11 +42,10 @@ def boas_vindas(nome: str | None) -> str:
 
 
 def montar(resultado: Resultado, extra: str = "") -> str:
-    """`extra`: frase sobre o pagamento/fiado, que entra antes do "Se estiver errado, diga: desfazer"."""
+    """`extra`: frase sobre o pagamento/fiado."""
     texto = _montar(resultado)
     if extra and resultado.ok and texto.startswith("Anotado!"):
-        sufixo = " Se estiver errado, diga: desfazer."
-        texto = texto.removesuffix(sufixo) + " " + extra + sufixo
+        texto = texto + " " + extra
     return texto
 
 
@@ -68,13 +67,13 @@ def _montar(resultado: Resultado) -> str:
         verbo = "Entrou" if m.tipo == TipoMovimento.ENTRADA else "Saiu"
         preco = f" por {fmt_reais(m.valor_total)}" if m.valor_total is not None else ""
         frases.append(
-            f"{verbo} {_qtd(m.quantidade, m.unidade)} de {m.produto}{preco}. "
-            f"Tinha {_qtd(m.antes, m.unidade)}, agora tem {_qtd(m.depois, m.unidade)}."
+            f"{verbo} {_qtd(m.quantidade, m.unidade)} de {m.produto}{preco}, "
+            f"agora tem {_qtd(m.depois, m.unidade)}."
         )
 
     if resultado.acao == Acao.DESFAZER:
-        return "Pronto, desfiz a última anotação. " + " ".join(frases)
-    return "Anotado! " + " ".join(frases) + " Se estiver errado, diga: desfazer."
+        return "Desfeito. " + " ".join(frases)
+    return "Anotado! " + " ".join(frases)
 
 
 def _consulta(resultado: Resultado) -> str:
@@ -132,8 +131,8 @@ def resumo_entrada(quantidade: Decimal, unidade: str, produto: str) -> str:
 
 def pergunta_valor(tipo: str, produto: str) -> str:
     if tipo == "venda":
-        return f"Por quanto você vendeu o {produto}?"
-    return f"Quanto você pagou no {produto}? Pode falar o preço do quilo, da unidade ou o total."
+        return f"Por quanto vendeu o {produto}?"
+    return f"Quanto pagou no {produto} (unitário ou total)?"
 
 
 def pergunta_quantidade(produto: str, unidade: str | None) -> str:
@@ -201,7 +200,23 @@ def lancamento_desfeito(valor: Decimal, tipo: str) -> str:
 CANCELADO = "Tudo bem, deixei como estava."
 NADA_PARA_CONFIRMAR = "Não tem nada esperando confirmação."
 NADA_PENDENTE = "Não tem nenhuma anotação esperando dado."
-CONVERSA = "Oi! Estou aqui para anotar seu estoque e seus gastos. " + AJUDA
+CONVERSA = (
+    "Oi! Eu ajudo a controlar seu comércio pelo WhatsApp. "
+    "Eu guardo seu estoque, anoto vendas e gastos, faço as contas do caixa e do fiado, e respondo por áudio.\n\n"
+    "Use palavras simples como:\n"
+    "1. *Estoque* (guardar): ex. \"estoque: 10 pães de queijo a 2 reais cada\"\n"
+    "2. *Vender* (saída): ex. \"vendi 5 pães de queijo\"\n"
+    "3. *Consultar* (saldo/caixa): ex. \"quanto tem de pão de queijo?\" ou \"fechamento\"\n"
+    "4. *Gastos e fiado*: ex. \"gastei 30 reais de gás\" ou \"vendi fiado pro João\"\n"
+    "5. *Desfazer* (apagar último): ex. \"desfazer\""
+)
+CONVERSA_FALA = (
+    "Oi! Eu ajudo a controlar seu comércio pelo WhatsApp. "
+    "Eu consigo guardar suas mercadorias no estoque, anotar vendas e gastos, "
+    "fazer as contas do caixa e do fiado, e responder tudo por áudio. "
+    "Para facilitar, use palavras como estoque para guardar, vender para saída, e consultar para ver o saldo. "
+    "Mande um áudio do que deseja anotar."
+)
 CORRIGIR_PRODUTO = "Para trocar o produto, diga: desfazer. E depois fale a anotação de novo."
 NAO_ACHEI_ANOTACAO = "Não achei a anotação para corrigir."
 DESPESAS_DESLIGADAS = "Ainda não estou anotando gastos. " + AJUDA

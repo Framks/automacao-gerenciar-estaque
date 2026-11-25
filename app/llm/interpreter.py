@@ -21,7 +21,7 @@ from app.errors import ServicoIndisponivel
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSAO = "v2.1"  # v2 + pagamento, fiado, caixa e configurar (F6)
+PROMPT_VERSAO = "v2.2"  # v2.1 + palavras reservadas (estoque/anote/vender), correção fonética STT e preço unitário
 
 PROMPT_V1 = """Você interpreta falas de pequenos comerciantes sobre o estoque da loja.
 Responda APENAS com um JSON neste formato:
@@ -52,8 +52,9 @@ Responda APENAS com um JSON:
   "assunto": null, "periodo": null, "formato": null, "confianca": 0.9}]}
 
 Tipos de operação:
-- compra: entrou mercadoria (comprei, chegou, recebi, repus, adicionar). itens obrigatório.
-- venda: saiu mercadoria (vendi, saiu, o cliente levou). itens obrigatório.
+- compra: entrou mercadoria (comprei, chegou, recebi, repus, adicionar, anote, anotar, guarde, guardar, estoque, colocar). itens obrigatório.
+  Ex.: "anote 10 pães de queijo" ou "estoque: 10 pães de queijo" = compra de 10 pães de queijo.
+- venda: saiu mercadoria (vendi, vender, saiu, o cliente levou, retirada de produto). itens obrigatório.
 - despesa: gasto que NÃO é mercadoria de estoque (luz, aluguel, frete, gasolina, funcionário, imposto, sacola).
   "valor" = o valor gasto. "categoria" = uma destas: aluguel, energia, agua, internet, transporte_frete,
   funcionario, impostos, embalagem, manutencao, mercadoria, outros (null se não disse com o quê).
@@ -74,8 +75,8 @@ Tipos de operação:
   valor_total, quantidade, unidade, categoria, descricao, cliente, cliente_novo (true em "é cliente novo"),
   forma_pagamento, fechamento_horario. Ex.: {"valor_unitario": 10}. Respondendo "Você quis dizer X?" com
   "é cliente novo"/"é outro" = completar {"cliente_novo": true} (não é cancelar).
-  Se existe pendência de valor de um produto e a fala dá um preço desse produto SEM dizer que vendeu,
-  é completar, NÃO é venda.
+  Se existe pendência de valor de um produto e a fala dá um preço desse produto (ex.: "cada pão de queijo é 2 reais", "cada ponto de queijo é 2") SEM dizer que vendeu, é completar, NÃO é venda.
+  ATENÇÃO a erros fonéticos de transcrição (ex.: "ponto de queijo" quando existe "pão de queijo" no catálogo/pendência): associe ao produto correspondente do contexto.
 - corrigir: muda uma anotação já feita ("errei, eram 12 quilos", "o arroz foi 60, não 50").
   "movimento_ref" = id do movimento em ultimos_movimentos, ou "ultimo". "campos" = os dados corretos,
   incluindo "produto" se citado, e "forma_pagamento"/"cliente" ("foi no pix", "essa foi fiado pro João").
@@ -139,7 +140,12 @@ Exemplos (contexto resumido):
 11. Fala: "me manda o fechamento do caixa todo dia às 8 da noite"
    {"operacoes":[{"tipo":"configurar","campos":{"fechamento_horario":"8 da noite"},"confianca":0.95}]}
 12. Fala: "como foram as vendas de outubro?"
-   {"operacoes":[{"tipo":"consulta","assunto":"caixa","periodo":"mes:10","formato":null,"confianca":0.9}]}"""
+   {"operacoes":[{"tipo":"consulta","assunto":"caixa","periodo":"mes:10","formato":null,"confianca":0.9}]}
+13. Fala: "anote 10 pães de queijo"
+   {"operacoes":[{"tipo":"compra","itens":[{"produto":"pão de queijo","quantidade":10,"unidade":"un","valor_unitario":null,"valor_total":null}],"confianca":0.95}]}
+14. Pendência {"id": 9, "resumo": "10 unidades de pão de queijo", "faltando": ["valor"]}.
+   Fala: "cada ponto de queijo é R$ 2"
+   {"operacoes":[{"tipo":"completar","pendencia_id":9,"campos":{"valor_unitario":2},"confianca":0.95}]}"""
 
 
 @dataclass

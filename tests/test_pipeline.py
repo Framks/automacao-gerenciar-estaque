@@ -138,6 +138,21 @@ def test_primeira_mensagem_cadastra_grava_e_responde_com_boas_vindas(ambiente):
     assert wa.audios == [(para, AudioGerado(b"ogg:" + texto.encode(), "audio/ogg", "ogg"))]
 
 
+def test_saudacao_ola_envia_lista_numerada_e_audio_explicativo(ambiente):
+    criar, wa, _, _ = ambiente
+    p = criar()
+    p.processar(audio("m0"))  # já cadastrado
+    wa.textos.clear()
+    wa.audios.clear()
+
+    p.processar(MensagemRecebida(telefone="5585999990001", msg_id="m2", tipo="text", nome="Zé", texto="olá"))
+    (para, texto), = wa.textos
+    assert "1. *Estoque*" in texto and "2. *Vender*" in texto
+    assert para == "5585999990001"
+    (_, audio_gerado), = wa.audios
+    assert b"estoque para guardar, vender para sa" in audio_gerado.conteudo
+
+
 def test_mensagem_registrada_com_status_intencao_tempos_e_saidas(ambiente):
     criar, wa, _, mensagens = ambiente
     criar().processar(audio())
@@ -242,8 +257,7 @@ def test_dialogo_do_feijao_ponta_a_ponta(ambiente):
     )
     p = criar(interpreter=interp, stt=FakeSTT("fala"))
     p.processar(audio("a1"))
-    assert wa.textos[-1][1].endswith("Quanto você pagou no feijão? Pode falar o preço do quilo, da unidade ou o "
-                                     "total.")
+    assert wa.textos[-1][1].endswith("Quanto pagou no feijão (unitário ou total)?")
     p.processar(audio("a2"))
     p.processar(audio("a3"))
     assert wa.textos[-1][1].startswith("Certo! O feijão saiu a 10 reais o quilo, 100 reais no total.")

@@ -60,6 +60,7 @@ class Saida:
     pergunta: str = ""
     resumo: list[dict[str, Any]] = field(default_factory=list)  # o que foi feito com cada operação (para o log)
     pedidos: list[PedidoRelatorio] = field(default_factory=list)  # relatórios que o pipeline deve montar
+    fala: str = ""
 
 
 def _tem_valor(item) -> bool:
@@ -88,6 +89,7 @@ class _Execucao:
         self.abertas = list(estado.pendencias)
         self.plano = Plano()
         self.frases: list[str] = []
+        self.falas: list[str] = []
         self.perguntas: list[str] = []
         self.pedidos: list[PedidoRelatorio] = []
         self.resolveu = False
@@ -757,6 +759,7 @@ class Atendimento:
 
     def _conversa(self, ex: _Execucao, op: Operacao) -> None:
         ex.frases.append(replies.CONVERSA)
+        ex.falas.append(replies.CONVERSA_FALA)
 
     # --- resposta ---------------------------------------------------------------------------------------
 
@@ -770,7 +773,8 @@ class Atendimento:
         texto = " ".join([*frases, pergunta]).strip()
         if not texto and not ex.pedidos:
             texto = "Não entendi. " + replies.AJUDA
-        return Saida(plano=ex.plano, texto=texto, pergunta=pergunta, resumo=ex.resumo, pedidos=ex.pedidos)
+        fala = " ".join([*ex.falas, pergunta]).strip() if ex.falas and len(ex.falas) == len(ex.frases) else ""
+        return Saida(plano=ex.plano, texto=texto, pergunta=pergunta, resumo=ex.resumo, pedidos=ex.pedidos, fala=fala)
 
     # --- descrição de operação para perguntas -----------------------------------------------------------
 

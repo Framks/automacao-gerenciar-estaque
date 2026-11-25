@@ -51,7 +51,7 @@ def test_padrao_nunca_presume_fiado():
 def test_venda_no_pix_grava_e_fala_o_meio():
     c = com_estoque()
     r = c.fala("vendi 3 kg de arroz por 18 no pix", venda("arroz", 3, valor_total=18) | {"forma_pagamento": "pix"})
-    assert "Recebido no Pix." in r and r.endswith("Se estiver errado, diga: desfazer.")
+    assert "Recebido no Pix." in r and r.startswith("Anotado! Saiu 3 quilos de arroz por 18 reais, agora tem 17 quilos.")
     m = c.loja.movimentos[-1]
     assert (m.forma_pagamento, m.forma_pagamento_origem) == ("pix", "dito")
     assert m.custo_unitario == Decimal("5.0000")  # custo médio na hora da venda
@@ -185,7 +185,7 @@ def test_desfazer_venda_fiado_devolve_estoque_e_divida():
     c = com_estoque()
     c.fala("vendi fiado", venda("arroz", 2, valor_total=12) | {"forma_pagamento": "fiado", "cliente": "João"})
     r = c.fala("desfazer", {"tipo": "desfazer"})
-    assert r.startswith("Pronto, desfiz a última anotação.")
+    assert r.startswith("Desfeito.")
     assert "Tirei do fiado de João, que não deve mais nada." in r
     assert c.produto("arroz").quantidade == 20
     assert saldo(c, "joao") == 0 == soma_livro(c, "joao")
