@@ -86,3 +86,18 @@ def test_bloqueado_no_banco_e_ignorado(cliente):
     c, mensagens, processadas, _ = cliente
     enviar(c, mensagem("5511900000000", "wamid.B"))
     assert processadas == [] and mensagens.de("wamid.B")["status"] == "ignorada"
+
+
+def test_numero_pendente_recebe_aviso_uma_unica_vez(cliente, monkeypatch):
+    c, _, processadas, _ = cliente
+    enviados = []
+    monkeypatch.setattr(main.container, "whatsapp", lambda: type("W", (), {
+        "enviar_texto": lambda s, tel, txt: enviados.append((tel, txt))})())
+    controle = Controle(MemoriaRedis())
+    monkeypatch.setattr(main.container, "controle", lambda: controle)
+
+    enviar(c, mensagem("5511988887777", "wamid.P1"))
+    enviar(c, mensagem("5511988887777", "wamid.P2"))
+    assert processadas == []
+    assert len(enviados) == 1
+    assert "aguarda autorização" in enviados[0][1]

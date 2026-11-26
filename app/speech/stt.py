@@ -7,6 +7,9 @@ import groq
 from app.errors import ServicoIndisponivel
 
 
+PROMPT_STT = "Estoque, compra, venda, fiado, pão de queijo, quilo, unidade, reais, desfazer."
+
+
 class SpeechToText(Protocol):
     def transcrever(self, audio: bytes, nome_arquivo: str = "audio.ogg") -> str: ...
 
@@ -23,6 +26,7 @@ class GroqWhisperSTT:
                 file=(nome_arquivo, audio),
                 model=self._model() if callable(self._model) else self._model,
                 language="pt",
+                prompt=PROMPT_STT,
                 response_format="json",
                 temperature=0,
             )

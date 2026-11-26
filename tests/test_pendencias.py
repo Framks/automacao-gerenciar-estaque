@@ -49,8 +49,7 @@ def completar(pendencia_id=None, **campos):
 def test_dialogo_real_do_feijao():
     c = Conversa()
     r1 = c.fala("Comprei 10 kg de feijão.", compra("feijão", 10))
-    assert "Entrou 10 quilos de feijão" in r1 and r1.endswith("Quanto você pagou no feijão? Pode falar o preço do "
-                                                               "quilo, da unidade ou o total.")
+    assert "Entrou 10 quilos de feijão" in r1 and r1.endswith("Quanto pagou no feijão (unitário ou total)?")
     assert "desfazer" not in r1  # com pergunta, a resposta fica mais curta
     (pd,) = c.loja.abertas()
     assert pd.campos_faltando == ["valor"] and pd.movimento_ref == "m1-0"
@@ -102,8 +101,7 @@ def test_compra_sem_quantidade_nao_grava_e_pergunta():
     assert r == "Quantos quilos de feijão?"
     assert c.loja.movimentos == []
     r2 = c.fala("foram 5 quilos", completar(quantidade=5))
-    assert "Entrou 5 quilos de feijão" in r2 and r2.endswith("Quanto você pagou no feijão? Pode falar o preço do "
-                                                             "quilo, da unidade ou o total.")
+    assert "Entrou 5 quilos de feijão" in r2 and r2.endswith("Quanto pagou no feijão (unitário ou total)?")
     assert c.produto("feijao").quantidade == 5
     assert len(c.loja.abertas()) == 1  # agora falta o valor (desejável)
 
@@ -113,12 +111,11 @@ def test_duas_pendencias_uma_pergunta_por_vez():
     r = c.fala("comprei 2 kg de arroz e 3 de feijão",
                {"tipo": "compra", "itens": [{"produto": "arroz", "quantidade": 2, "unidade": "kg"},
                                             {"produto": "feijão", "quantidade": 3, "unidade": "kg"}]})
-    assert r.endswith("Quanto você pagou no arroz? Pode falar o preço do quilo, da unidade ou o total.")
+    assert r.endswith("Quanto pagou no arroz (unitário ou total)?")
     assert "feijão?" not in r
     arroz, feijao = c.loja.abertas()
     r2 = c.fala("o arroz foi 10", completar(arroz.id, valor_total=10))
-    assert r2.endswith("Mais uma coisa: Quanto você pagou no feijão? Pode falar o preço do quilo, da unidade ou o "
-                       "total.")
+    assert r2.endswith("Mais uma coisa: Quanto pagou no feijão (unitário ou total)?")
     c.fala("o feijão 9", completar(feijao.id, valor_total=9))
     assert c.loja.abertas() == []
 
@@ -142,7 +139,7 @@ def test_pendencia_vencida_some():
 def test_sem_perguntar_valor_por_flag():
     c = Conversa(Parametros(perguntar_valor_compra=False))
     r = c.fala("comprei 5 kg de carne", compra("carne", 5))
-    assert r.endswith("Se estiver errado, diga: desfazer.") and c.loja.abertas() == []
+    assert r == "Anotado! Entrou 5 quilos de carne, agora tem 5 quilos." and c.loja.abertas() == []
 
 
 # --- confirmação ---------------------------------------------------------------------------------------

@@ -18,7 +18,8 @@ from app.domain.units import chave_produto, sem_acento
 
 _VERBOS = re.compile(
     r"\b(compr\w*|vend\w*|pagu\w*|paga\w*|gast\w*|cheg\w*|receb\w*|rep(u|o)\w*|entr\w*|sai\w*|levou|lev\w*|"
-    r"adquir\w*|adicion\w*|acrescent\w*|coloc\w*|bot\w*|peg\w*|custou|custa\w*|sobr\w*)\b"
+    r"adquir\w*|adicion\w*|acrescent\w*|coloc\w*|bot\w*|peg\w*|custou|custa\w*|sobr\w*|"
+    r"anot\w*|guard\w*|estoqu\w*|registr\w*|lanc\w*|tira\w*|retir\w*)\b"
 )
 
 

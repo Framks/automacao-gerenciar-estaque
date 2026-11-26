@@ -21,7 +21,7 @@ from app.errors import ServicoIndisponivel
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSAO = "v2.1"  # v2 + pagamento, fiado, caixa e configurar (F6)
+PROMPT_VERSAO = "v2.2"  # v2.1 + palavras reservadas (estoque/anote/vender), correção fonética STT e preço unitário
 
 PROMPT_V1 = """Você interpreta falas de pequenos comerciantes sobre o estoque da loja.
 Responda APENAS com um JSON neste formato:
@@ -48,12 +48,15 @@ PROMPT_V2 = """Você interpreta mensagens (transcritas de áudio, podem ter erro
 anotam estoque e gastos pelo WhatsApp. Você recebe o CONTEXTO da conversa e a FALA atual.
 Responda APENAS com um JSON:
 {"operacoes": [{"tipo": "...", "itens": [], "valor": null, "categoria": null, "descricao": null,
-  "forma_pagamento": null, "cliente": null, "pendencia_id": null, "movimento_ref": null, "campos": {},
+  "forma_pagamento": null, "valor_recebido": null, "cliente": null, "pendencia_id": null, "movimento_ref": null, "campos": {},
   "assunto": null, "periodo": null, "formato": null, "confianca": 0.9}]}
 
 Tipos de operação:
-- compra: entrou mercadoria (comprei, chegou, recebi, repus, adicionar). itens obrigatório.
-- venda: saiu mercadoria (vendi, saiu, o cliente levou). itens obrigatório.
+- compra: entrou mercadoria (comprei, chegou, recebi, repus, adicionar, anote, anotar, guarde, guardar, estoque, colocar). itens obrigatório.
+  Ex.: "anote 10 pães de queijo" ou "estoque: 10 pães de queijo" = compra de 10 pães de queijo.
+- venda: saiu mercadoria (vendi, vender, saiu, o cliente levou, retirada de produto). itens obrigatório.
+  "valor_recebido": quanto o cliente entregou em dinheiro para calcular troco (ex.: "o cliente me deu 30 reais" -> 30).
+  NÃO calcule o troco; copie apenas o valor entregue. Se não falou, use null.
 - despesa: gasto que NÃO é mercadoria de estoque (luz, aluguel, frete, gasolina, funcionário, imposto, sacola).
   "valor" = o valor gasto. "categoria" = uma destas: aluguel, energia, agua, internet, transporte_frete,
   funcionario, impostos, embalagem, manutencao, mercadoria, outros (null se não disse com o quê).
@@ -65,17 +68,19 @@ Tipos de operação:
 - recebimento: um CLIENTE pagou o fiado ("o João pagou 20", "a Maria acertou tudo"). "cliente", "valor";
   "tudo": true se quitou tudo. "Paguei 20 pro fornecedor" NÃO é recebimento (é despesa ou compra).
 - perdoar: esquecer a dívida de um cliente ("esquece o que o Zé deve"). "cliente".
-- configurar: tudo sobre o ENVIO AUTOMÁTICO do fechamento ou o pagamento padrão (NÃO é consulta). "campos" só
-  com: fechamento_horario (como foi falado, ex. "8 da noite"; "desligar" em "para de mandar o fechamento"),
-  fechamento_mensal (true em "quero o fechamento do mês também", false para parar), fechamento_formato ("resumo"
-  ou "itens"), pagamento_padrao. Pergunta sobre o envio ("que horas chega o fechamento?"): campos {}.
+- configurar: tudo sobre o ENVIO AUTOMÁTICO do fechamento, o pagamento padrão ou o PREÇO DE VENDA de um produto
+  (NÃO é consulta). "campos" só com: fechamento_horario (como foi falado, ex. "8 da noite"; "desligar" em "para de
+  mandar o fechamento"), fechamento_mensal (true em "quero o fechamento do mês também", false para parar),
+  fechamento_formato ("resumo" ou "itens"), pagamento_padrao, ou produto + preco_venda (ex.: "o bolo é 4 reais"
+  sem pendência aberta -> {"produto": "bolo", "preco_venda": 4}). Pergunta sobre o envio ("que horas chega o
+  fechamento?"): campos {}.
 - completar: a fala responde uma PENDÊNCIA do contexto (o bot perguntou o valor, a quantidade, com o que foi
   o gasto). "pendencia_id" = o id da pendência. "campos" = só o que foi dito, entre: valor_unitario,
   valor_total, quantidade, unidade, categoria, descricao, cliente, cliente_novo (true em "é cliente novo"),
   forma_pagamento, fechamento_horario. Ex.: {"valor_unitario": 10}. Respondendo "Você quis dizer X?" com
   "é cliente novo"/"é outro" = completar {"cliente_novo": true} (não é cancelar).
-  Se existe pendência de valor de um produto e a fala dá um preço desse produto SEM dizer que vendeu,
-  é completar, NÃO é venda.
+  Se existe pendência de valor de um produto e a fala dá um preço desse produto (ex.: "cada pão de queijo é 2 reais", "cada ponto de queijo é 2") SEM dizer que vendeu, é completar, NÃO é venda.
+  ATENÇÃO a erros fonéticos de transcrição (ex.: "ponto de queijo" quando existe "pão de queijo" no catálogo/pendência): associe ao produto correspondente do contexto.
 - corrigir: muda uma anotação já feita ("errei, eram 12 quilos", "o arroz foi 60, não 50").
   "movimento_ref" = id do movimento em ultimos_movimentos, ou "ultimo". "campos" = os dados corretos,
   incluindo "produto" se citado, e "forma_pagamento"/"cliente" ("foi no pix", "essa foi fiado pro João").
@@ -139,7 +144,14 @@ Exemplos (contexto resumido):
 11. Fala: "me manda o fechamento do caixa todo dia às 8 da noite"
    {"operacoes":[{"tipo":"configurar","campos":{"fechamento_horario":"8 da noite"},"confianca":0.95}]}
 12. Fala: "como foram as vendas de outubro?"
-   {"operacoes":[{"tipo":"consulta","assunto":"caixa","periodo":"mes:10","formato":null,"confianca":0.9}]}"""
+   {"operacoes":[{"tipo":"consulta","assunto":"caixa","periodo":"mes:10","formato":null,"confianca":0.9}]}
+13. Fala: "anote 10 pães de queijo"
+   {"operacoes":[{"tipo":"compra","itens":[{"produto":"pão de queijo","quantidade":10,"unidade":"un","valor_unitario":null,"valor_total":null}],"confianca":0.95}]}
+14. Pendência {"id": 9, "resumo": "10 unidades de pão de queijo", "faltando": ["valor"]}.
+   Fala: "cada ponto de queijo é R$ 2"
+   {"operacoes":[{"tipo":"completar","pendencia_id":9,"campos":{"valor_unitario":2},"confianca":0.95}]}
+15. Fala: "vendi 2 copos de café a 1,50 cada e 4 bolos a 4 reais cada, o cliente me deu 30 reais"
+   {"operacoes":[{"tipo":"venda","itens":[{"produto":"copo de café","quantidade":2,"unidade":"un","valor_unitario":1.5,"valor_total":null},{"produto":"bolo","quantidade":4,"unidade":"un","valor_unitario":4,"valor_total":null}],"valor_recebido":30,"confianca":0.95}]}"""
 
 
 @dataclass

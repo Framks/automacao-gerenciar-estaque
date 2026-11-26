@@ -19,3 +19,9 @@ def test_fechamento_sem_ia(fala, periodo):
 ])
 def test_resto_vai_para_a_ia(fala):
     assert atalho(fala) is None
+
+
+@pytest.mark.parametrize("fala", ["oi", "Olá!", "bom dia", "menu", "ajuda", "o que você faz?"])
+def test_saudacao_e_menu_sem_ia(fala):
+    (op,) = atalho(fala).operacoes
+    assert op.tipo.value == "conversa"

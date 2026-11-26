@@ -6,7 +6,7 @@ Tudo ou nada: se qualquer item de uma mensagem tiver problema, nada é gravado.
 from dataclasses import replace
 from decimal import Decimal
 
-from app.domain.dinheiro import ValoresIncoerentes, quantidade, resolver_valores, unitario
+from app.domain.dinheiro import ValoresIncoerentes, quantidade, reais, resolver_valores, unitario
 from app.domain.models import (
     Acao,
     Intencao,
@@ -81,6 +81,11 @@ def aplicar(intencao: Intencao, estoque: Estoque, *, texto: str, msg_id: str, ag
             depois = antes - q
             tipo = TipoMovimento.SAIDA
             custo_na_venda = atual.custo_medio
+            if valor_unitario is None and valor_total is None and atual.preco_venda is not None:
+                valor_unitario = atual.preco_venda
+                valor_total = reais(q * valor_unitario)
+            elif valor_unitario is not None:
+                atual.preco_venda = reais(valor_unitario)
 
         atual.quantidade = depois
         atual.atualizado_em = agora

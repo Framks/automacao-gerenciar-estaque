@@ -224,7 +224,7 @@ class Pipeline:
         })
 
         textos = [saida.texto] if saida.texto else []
-        falas = list(textos)
+        falas = [saida.fala] if saida.fala else list(textos)
         anexos: list[Anexo] = []
         sem_audio = False
         if saida.pedidos and self._relatorios is not None:

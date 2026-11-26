@@ -60,6 +60,7 @@ class Saida:
     pergunta: str = ""
     resumo: list[dict[str, Any]] = field(default_factory=list)  # o que foi feito com cada operação (para o log)
     pedidos: list[PedidoRelatorio] = field(default_factory=list)  # relatórios que o pipeline deve montar
+    fala: str = ""
 
 
 def _tem_valor(item) -> bool:
@@ -88,6 +89,7 @@ class _Execucao:
         self.abertas = list(estado.pendencias)
         self.plano = Plano()
         self.frases: list[str] = []
+        self.falas: list[str] = []
         self.perguntas: list[str] = []
         self.pedidos: list[PedidoRelatorio] = []
         self.resolveu = False
@@ -258,6 +260,8 @@ class Atendimento:
             return
 
         forma, origem = self._forma(op)
+        if op.tipo == TipoOperacao.VENDA and op.valor_recebido is not None and forma == NAO_INFORMADO:
+            forma, origem = "dinheiro", "inferido"
         fiado = op.tipo == TipoOperacao.VENDA and forma == "fiado"
         cliente = None
         if fiado:
@@ -271,14 +275,26 @@ class Atendimento:
             return
         novos = ex.gravar_resultado(r, forma, origem)
 
-        extra = ""
+        partes_extra: list[str] = []
         if fiado and cliente is not None:
             for m in novos:
                 atual = ex.lancar_fiado(cliente.chave, cliente.nome, "divida", m.valor_total, movimento_ref=m.id)
-            extra = replies.fiado_anotado(atual.nome, atual.saldo)
+            partes_extra.append(replies.fiado_anotado(atual.nome, atual.saldo))
         elif origem == "dito":
-            extra = replies.frase_pagamento(op.tipo.value, forma)
-        ex.frases.append(replies.montar(r, extra))
+            frase_pag = replies.frase_pagamento(op.tipo.value, forma)
+            if frase_pag:
+                partes_extra.append(frase_pag)
+        if op.tipo == TipoOperacao.VENDA and op.valor_recebido is not None and novos and all(
+            m.valor_total is not None for m in novos
+        ):
+            total_venda = sum((m.valor_total for m in novos), Decimal(0))
+            recebido = reais(op.valor_recebido)
+            partes_extra.append(replies.troco(total_venda, recebido, recebido - total_venda))
+        if op.tipo == TipoOperacao.VENDA:
+            for m in r.mudancas:
+                if m.depois <= self.p.estoque_baixo_limite:
+                    partes_extra.append(replies.alerta_estoque_baixo(m.produto, m.depois, m.unidade))
+        ex.frases.append(replies.montar(r, " ".join(partes_extra)))
 
         if op.tipo == TipoOperacao.COMPRA and self.p.perguntar_valor_compra:
             for falta in av.itens:
@@ -410,6 +426,19 @@ class Atendimento:
         if not campos:
             ex.frases.append(replies.config_atual(self.p.fechamento_horario, self.p.fechamento_mensal,
                                                   self.p.fechamento_formato, self.p.pagamento_padrao))
+            return
+        if "preco_venda" in campos and (campos.get("produto") or op.itens):
+            nome_raw = str(campos.get("produto") or op.itens[0].produto)
+            chave = chave_produto(nome_raw)
+            prod = ex.estoque.get(chave)
+            if prod is None:
+                ex.frases.append(f"Não achei {nome_produto(nome_raw)} no estoque.")
+                return
+            preco = reais(parse_valor(campos["preco_venda"]))
+            atualizado = replace(prod, preco_venda=preco, atualizado_em=ex.agora)
+            ex.estoque[chave] = atualizado
+            ex.plano.estoque[chave] = atualizado
+            ex.frases.append(replies.preco_venda_definido(atualizado.produto, preco, atualizado.unidade))
             return
         for chave, valor in campos.items():
             if chave in ("fechamento_horario", "horario", "fechamento_diario_horario"):
@@ -757,6 +786,7 @@ class Atendimento:
 
     def _conversa(self, ex: _Execucao, op: Operacao) -> None:
         ex.frases.append(replies.CONVERSA)
+        ex.falas.append(replies.CONVERSA_FALA)
 
     # --- resposta ---------------------------------------------------------------------------------------
 
@@ -770,7 +800,8 @@ class Atendimento:
         texto = " ".join([*frases, pergunta]).strip()
         if not texto and not ex.pedidos:
             texto = "Não entendi. " + replies.AJUDA
-        return Saida(plano=ex.plano, texto=texto, pergunta=pergunta, resumo=ex.resumo, pedidos=ex.pedidos)
+        fala = " ".join([*ex.falas, pergunta]).strip() if ex.falas and len(ex.falas) == len(ex.frases) else ""
+        return Saida(plano=ex.plano, texto=texto, pergunta=pergunta, resumo=ex.resumo, pedidos=ex.pedidos, fala=fala)
 
     # --- descrição de operação para perguntas -----------------------------------------------------------
 

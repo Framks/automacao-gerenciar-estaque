@@ -70,6 +70,7 @@ def montar(texto: str, estado: EstadoConversa, historico: list[MensagemHistorico
         "quantidade": _num(estado.estoque[k].quantidade),
         "custo_medio": _num(estado.estoque[k].custo_medio) if estado.estoque[k].custo_medio is not None
         else "sem custo",
+        **({"preco_venda": _num(estado.estoque[k].preco_venda)} if estado.estoque[k].preco_venda is not None else {}),
     } for k in ordem]
 
     movimentos = [{

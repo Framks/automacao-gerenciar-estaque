@@ -13,11 +13,19 @@ _FECHAMENTO = re.compile(r"^(me )?(manda|mande|envia|ver|quero|faz|faca|fecha|fe
                          r"(o |a )?(fechamento|fecha o caixa|fechar o caixa|fechar caixa|caixa)"
                          r"( do caixa| de caixa)?( de| do)?( hoje| dia| de hoje| ontem| de ontem)?$")
 _NAO = re.compile(r"\b(todo|toda|todos|as|hora|horas|\d+h|noite|manha|tarde|mes|para de|desliga|nao)\b")
+_SAUDACAO = re.compile(
+    r"^(oi+|ola+|opa|e ai|bom dia|boa tarde|boa noite|menu|ajuda|comandos|"
+    r"o que voce faz|como funciona|como usar)(\s+(tudo bem|pessoal|bot|amigo))?$"
+)
 
 
 def atalho(texto: str | None) -> RespostaLLM | None:
     t = " ".join(re.sub(r"[^\w ]", " ", sem_acento((texto or "").lower())).split())
-    if not t or len(t) > 40 or _NAO.search(t) or not _FECHAMENTO.match(t):
+    if not t or len(t) > 40:
+        return None
+    if _SAUDACAO.match(t):
+        return RespostaLLM(operacoes=[Operacao(tipo=TipoOperacao.CONVERSA)])
+    if _NAO.search(t) or not _FECHAMENTO.match(t):
         return None
     if "caixa" not in t and "fechamento" not in t:
         return None

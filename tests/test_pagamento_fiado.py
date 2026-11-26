@@ -51,10 +51,49 @@ def test_padrao_nunca_presume_fiado():
 def test_venda_no_pix_grava_e_fala_o_meio():
     c = com_estoque()
     r = c.fala("vendi 3 kg de arroz por 18 no pix", venda("arroz", 3, valor_total=18) | {"forma_pagamento": "pix"})
-    assert "Recebido no Pix." in r and r.endswith("Se estiver errado, diga: desfazer.")
+    assert "Recebido no Pix." in r and r.startswith("Anotado! Saiu 3 quilos de arroz por 18 reais, agora tem 17 quilos.")
     m = c.loja.movimentos[-1]
     assert (m.forma_pagamento, m.forma_pagamento_origem) == ("pix", "dito")
     assert m.custo_unitario == Decimal("5.0000")  # custo médio na hora da venda
+
+
+def test_venda_calcula_troco_para_multiplos_itens():
+    c = Conversa(Parametros(perguntar_pagamento=True))
+    c.fala("comprei 10 bolos e 2 copos de café", {
+        "tipo": "compra",
+        "itens": [
+            {"produto": "bolo", "quantidade": 10, "unidade": "un", "valor_total": 20},
+            {"produto": "copo de café", "quantidade": 2, "unidade": "un", "valor_total": 2},
+        ],
+    })
+    r = c.fala(
+        "vendi 2 copos de café a 1,50 cada e 4 bolos a 4 reais cada, o cliente me deu 30 reais",
+        {
+            "tipo": "venda",
+            "itens": [
+                {"produto": "copo de café", "quantidade": 2, "unidade": "un", "valor_unitario": 1.5},
+                {"produto": "bolo", "quantidade": 4, "unidade": "un", "valor_unitario": 4},
+            ],
+            "valor_recebido": 30,
+        },
+    )
+    assert "Total: 19 reais. Cliente deu 30 reais, troco de 11 reais." in r
+    assert "Foi em" not in r
+    assert "Atenção: copo de café acabou no estoque." in r
+
+
+def test_preco_venda_padrao_e_alerta_estoque_baixo():
+    c = Conversa()
+    c.fala("comprei 4 bolos", compra("bolo", 4, valor_total=8))
+    r1 = c.fala("o bolo é 4 reais", {"tipo": "configurar", "campos": {"produto": "bolo", "preco_venda": 4}})
+    assert "4 reais" in r1
+    r2 = c.fala("vendi 2 bolos, o cliente deu 10", {
+        "tipo": "venda",
+        "itens": [{"produto": "bolo", "quantidade": 2}],
+        "valor_recebido": 10,
+    })
+    assert "Total: 8 reais. Cliente deu 10 reais, troco de 2 reais." in r2
+    assert "Atenção: restam 2 quilos de bolo no estoque." in r2 or "Atenção: restam 2 unidades de bolo no estoque." in r2
 
 
 def test_venda_sem_meio_usa_o_padrao_sem_falar():
@@ -185,7 +224,7 @@ def test_desfazer_venda_fiado_devolve_estoque_e_divida():
     c = com_estoque()
     c.fala("vendi fiado", venda("arroz", 2, valor_total=12) | {"forma_pagamento": "fiado", "cliente": "João"})
     r = c.fala("desfazer", {"tipo": "desfazer"})
-    assert r.startswith("Pronto, desfiz a última anotação.")
+    assert r.startswith("Desfeito.")
     assert "Tirei do fiado de João, que não deve mais nada." in r
     assert c.produto("arroz").quantidade == 20
     assert saldo(c, "joao") == 0 == soma_livro(c, "joao")

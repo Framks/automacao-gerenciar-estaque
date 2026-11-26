@@ -19,17 +19,14 @@ def test_resposta_de_compra_do_exemplo_do_task():
     estoque = {"arroz": ProdutoEstoque("arroz", "kg", 3, None, "", linha=2)}
     i = Intencao(acao=Acao.COMPRA, itens=[Item(produto="arroz", quantidade=300, unidade="kg", valor_total=300)])
     r = inventory.aplicar(i, estoque, texto="", msg_id="m", agora="")
-    assert replies.montar(r) == (
-        "Anotado! Entrou 300 quilos de arroz por 300 reais. "
-        "Tinha 3 quilos, agora tem 303 quilos. Se estiver errado, diga: desfazer."
-    )
+    assert replies.montar(r) == "Anotado! Entrou 300 quilos de arroz por 300 reais, agora tem 303 quilos."
 
 
 def test_singular():
     estoque = {"leite": ProdutoEstoque("leite", "cx", 2, None, "", linha=2)}
     i = Intencao(acao=Acao.VENDA, itens=[Item(produto="leite", quantidade=1)])
     r = inventory.aplicar(i, estoque, texto="", msg_id="m", agora="")
-    assert "Saiu 1 caixa de leite. Tinha 2 caixas, agora tem 1 caixa." in replies.montar(r)
+    assert "Saiu 1 caixa de leite, agora tem 1 caixa." in replies.montar(r)
 
 
 def test_problema():
